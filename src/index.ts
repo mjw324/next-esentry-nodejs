@@ -17,6 +17,7 @@ import { NotificationService } from './services/notification.service';
 import { EmailService } from './services/email.service';
 import { ComparisonService } from './services/comparison.service';
 import { MonitorWorker } from './workers/monitor.worker';
+import ebayNotificationRoutes from './routes/ebay-notification.routes';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -78,6 +79,7 @@ async function initialize() {
     app.use(express.json());
     
     // Routes
+    app.use('/api/ebay-notifications', ebayNotificationRoutes);
     app.use('/api/monitors', monitorRoutes);
     app.use('/api/email', emailRoutes);
     

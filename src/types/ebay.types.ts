@@ -42,3 +42,26 @@ export interface EbaySearchParams {
     conditions: string[];
     sellers: string[];
 }
+
+export interface EbayNotification {
+    metadata: {
+        topic: string;
+        schemaVersion: string;
+        deprecated: boolean;
+    };
+    notification: {
+        notificationId: string;
+        eventDate: string;
+        publishDate: string;
+        publishAttemptCount: number;
+        data: {
+            username: string;
+            userId: string;
+            eiasToken: string;
+        };
+    };
+}
+
+export interface ChallengeResponse {
+    challengeResponse: string;
+}
