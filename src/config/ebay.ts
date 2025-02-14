@@ -1,11 +1,7 @@
 type EbayEnvironment = 'SANDBOX' | 'PRODUCTION';
 export const ebayConfig = {
-  apiUrl: 'https://api.ebay.com/buy/browse/v1',
-  authUrl: 'https://api.ebay.com/identity/v1/oauth2/token',
-  sandbox: {
-    apiUrl: 'https://api.sandbox.ebay.com/buy/browse/v1',
-    authUrl: 'https://api.sandbox.ebay.com/identity/v1/oauth2/token',
-  },
+  apiUrl: process.env.NODE_ENV === 'production' ? 'https://api.ebay.com/buy/browse/v1' : 'https://api.sandbox.ebay.com/buy/browse/v1',
+  authUrl: process.env.NODE_ENV === 'production' ? 'https://api.ebay.com/identity/v1/oauth2/token' : 'https://api.sandbox.ebay.com/identity/v1/oauth2/token',
   credentials: {
     clientId: process.env.EBAY_CLIENT_ID,
     clientSecret: process.env.EBAY_CLIENT_SECRET,

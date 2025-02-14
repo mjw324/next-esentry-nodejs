@@ -5,8 +5,7 @@ import { EbaySearchParams, EbaySearchResults, EbayItem } from '../types/ebay.typ
 import { EbayAuthService } from './ebay-auth.service';
 
 export class EbayService {
-  private readonly baseUrl = ebayConfig.sandbox.apiUrl;
-
+  
   constructor(private authService: EbayAuthService) { }
 
   async searchItems(params: EbaySearchParams): Promise<EbaySearchResults> {
@@ -21,7 +20,7 @@ export class EbayService {
       console.log('Filter string: ', filter);
 
       const response = await axios.get<EbaySearchResults>(
-        `${this.baseUrl}/item_summary/search`,
+        `${ebayConfig.apiUrl}/item_summary/search`,
         {
           headers: {
             'Authorization': `Bearer ${accessToken}`,
