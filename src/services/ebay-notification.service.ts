@@ -9,9 +9,11 @@ export class EbayNotificationService {
 
     validateChallenge(challengeCode: string): string {
         const hash = createHash('sha256');
-        hash.update(challengeCode);
-        hash.update(this.verificationToken);
-        hash.update(this.endpoint);
+
+        hash.update(Buffer.from(challengeCode));
+        hash.update(Buffer.from(this.verificationToken));
+        hash.update(Buffer.from(this.endpoint));
+
         return hash.digest('hex');
     }
 
