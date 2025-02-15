@@ -77,11 +77,11 @@ router.post('/test-monitor', async (req, res, next) => {
     // 2. Create a test monitor
     console.log('📡 Creating test monitor...');
     const monitorData : CreateMonitorDTO = {
-      keywords: ['iphone', '13'],
-      excludedKeywords: ['case', 'screen protector'],
+      keywords: ['iphone'],
+      excludedKeywords: ['case', 'screen protector', 'broke', 'accessories', 'accessory'],
       minPrice: 400,
       maxPrice: 1000,
-      conditions: ['NEW'],
+      conditions: [],
       sellers: []
     };
 
@@ -95,7 +95,7 @@ router.post('/test-monitor', async (req, res, next) => {
 
     // 4. Manually trigger a monitor check
     console.log('Triggering initial monitor check...');
-    const job = await monitorQueue.addMonitorJob(monitor.id);
+    const job = await monitorQueue.addMonitorJob(monitor.id, 15000);
     console.log('Monitor job queued:');
 
     // 5. Wait for results

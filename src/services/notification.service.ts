@@ -28,8 +28,9 @@ export class NotificationService {
   }
 
   async sendNotification(payload: NotificationPayload): Promise<void> {
-    // Check rate limits
+    console.log('Sending notification:', payload);
 
+    // Check rate limits
     // Create notification history entry
 
     // Implementation for actually sending notifications would go here
