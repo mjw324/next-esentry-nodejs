@@ -5,8 +5,10 @@ export const createMonitorSchema = z.object({
   excludedKeywords: z.array(z.string()).optional(),
   minPrice: z.number().min(0).optional(),
   maxPrice: z.number().min(0).optional(),
-  conditions: z.array(z.enum(['NEW', 'USED'])),
-  sellers: z.array(z.string()),
+  conditions: z.array(z.enum(['NEW', 'USED'])).optional(),
+  sellers: z.array(z.string()).optional(),
+  useLoginEmail: z.boolean().optional(),
+  customEmail: z.string().email().optional()
 });
 
 export type CreateMonitorDTO = z.infer<typeof createMonitorSchema>;

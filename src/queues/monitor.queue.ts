@@ -1,6 +1,6 @@
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
-import { bullMQRedisConnection } from '../config/redis';
+import { bullMQRedisConnection } from '../config/redis.config';
 
 export class MonitorQueue {
   private queue: Queue;

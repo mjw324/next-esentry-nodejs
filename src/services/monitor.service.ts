@@ -1,11 +1,10 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import { CreateMonitorDTO } from '../types/monitor.types';
 import { RateLimitService } from './ratelimit.service';
 import { MonitorQueue } from '../queues/monitor.queue';
 
 export class MonitorService {
   constructor(
-    private prisma: PrismaClient,
     private rateLimitService: RateLimitService,
     private monitorQueue: MonitorQueue
   ) { }
@@ -15,7 +14,7 @@ export class MonitorService {
     await this.rateLimitService.validateUserMonitorLimit(userId);
 
     // Create monitor in database
-    const monitor = await this.prisma.monitor.create({
+    const monitor = await prisma.monitor.create({
       data: {
         userId,
         keywords: data.keywords,
@@ -32,7 +31,7 @@ export class MonitorService {
   }
 
   async activateMonitor(monitorId: string): Promise<void> {
-    const monitor = await this.prisma.monitor.findUnique({
+    const monitor = await prisma.monitor.findUnique({
       where: { id: monitorId }
     });
 
@@ -41,7 +40,7 @@ export class MonitorService {
     }
 
     // Update status
-    await this.prisma.monitor.update({
+    await prisma.monitor.update({
       where: { id: monitorId },
       data: { status: 'active' }
     });

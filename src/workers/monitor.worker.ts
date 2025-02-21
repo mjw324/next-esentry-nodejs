@@ -3,9 +3,9 @@ import { Redis } from 'ioredis';
 import { EbayService } from '../services/ebay.service';
 import { CacheService } from '../services/cache.service';
 import { ComparisonService } from '../services/comparison.service';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import { Job } from 'bullmq';
-import { bullMQRedisConnection } from '../config/redis';
+import { bullMQRedisConnection } from '../config/redis.config';
 
 export class MonitorWorker {
   private worker: Worker;
@@ -13,7 +13,6 @@ export class MonitorWorker {
     private ebayService: EbayService,
     private cacheService: CacheService,
     private comparisonService: ComparisonService,
-    private prisma: PrismaClient,
     redis: Redis
   ) {
     this.worker = new Worker(
@@ -40,7 +39,7 @@ export class MonitorWorker {
   private async processJob(job: Job): Promise<void> {
     const { monitorId } = job.data;
 
-    const monitor = await this.prisma.monitor.findUnique({
+    const monitor = await prisma.monitor.findUnique({
       where: { id: monitorId }
     });
 
@@ -90,7 +89,7 @@ export class MonitorWorker {
         );
       }
 
-      await this.prisma.monitor.update({
+      await prisma.monitor.update({
         where: { id: monitorId },
         data: {
           lastCheckTime: new Date(),

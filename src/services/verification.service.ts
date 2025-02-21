@@ -1,9 +1,9 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import { randomBytes } from 'crypto';
-import { emailConfig } from '../config/email';
+import { emailConfig } from '../config/email.config';
 
 export class VerificationService {
-  constructor(private prisma: PrismaClient) { }
+  constructor() { }
 
   private generateToken(): string {
     return randomBytes(32).toString('hex');
@@ -21,23 +21,28 @@ export class VerificationService {
     const pin = this.generatePin();
     const expires = new Date(Date.now() + emailConfig.verificationTokenExpiry);
 
-    await this.prisma.notificationSettings.upsert({
+    await prisma.notificationSettings.upsert({
       where: { userId },
       update: {
-        emailAddress: email,
+        customEmailAddress: email,
         emailVerificationToken: token,
         emailVerificationPin: pin,
         emailVerificationExpires: expires,
         emailVerificationAttempts: 0,
-        emailEnabled: false,
+        emailEnabled: true,
         emailVerified: false,
+        useLoginEmail: false,
+        lastEmailChangeDate: new Date()
       },
       create: {
         userId,
-        emailAddress: email,
+        customEmailAddress: email,
         emailVerificationToken: token,
         emailVerificationPin: pin,
         emailVerificationExpires: expires,
+        emailEnabled: true,
+        useLoginEmail: false,
+        lastEmailChangeDate: new Date()
       },
     });
 
@@ -48,7 +53,7 @@ export class VerificationService {
     userId: string,
     tokenOrPin: string
   ): Promise<{ success: boolean; message: string }> {
-    const settings = await this.prisma.notificationSettings.findUnique({
+    const settings = await prisma.notificationSettings.findUnique({
       where: { userId },
     });
 
@@ -73,7 +78,7 @@ export class VerificationService {
       settings.emailVerificationPin === tokenOrPin;
 
     if (!isValid) {
-      await this.prisma.notificationSettings.update({
+      await prisma.notificationSettings.update({
         where: { userId },
         data: {
           emailVerificationAttempts: { increment: 1 },
@@ -82,7 +87,7 @@ export class VerificationService {
       return { success: false, message: 'Invalid verification code' };
     }
 
-    await this.prisma.notificationSettings.update({
+    await prisma.notificationSettings.update({
       where: { userId },
       data: {
         emailVerified: true,

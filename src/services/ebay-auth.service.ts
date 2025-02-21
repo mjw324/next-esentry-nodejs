@@ -1,6 +1,6 @@
 import EbayAuthToken from 'ebay-oauth-nodejs-client';
 import { Redis } from 'ioredis';
-import { ebayConfig } from '../config/ebay';
+import { ebayConfig } from '../config/ebay.config';
 
 export class EbayAuthService {
   private readonly TOKEN_KEY = 'ebay:access_token';

@@ -9,7 +9,7 @@ import { validateEmailSetup } from '../middleware/validation/email.validation';
 const router = Router();
 
 const emailService = new EmailService();
-const verificationService = new VerificationService(prisma);
+const verificationService = new VerificationService();
 const emailController = new EmailController(emailService, verificationService);
 
 router.post(

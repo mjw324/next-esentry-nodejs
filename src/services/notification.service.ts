@@ -1,16 +1,15 @@
 // src/services/notification.service.ts
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import { NotificationSettings, NotificationPayload } from '../types/notification.types';
 import { RateLimitService } from './ratelimit.service';
 
 export class NotificationService {
   constructor(
-    private prisma: PrismaClient,
     private rateLimitService: RateLimitService
   ) { }
 
   async getUserNotificationSettings(userId: string): Promise<NotificationSettings | null> {
-    const settings = await this.prisma.notificationSettings.findUnique({
+    const settings = await prisma.notificationSettings.findUnique({
       where: { userId }
     });
 
@@ -19,10 +18,6 @@ export class NotificationService {
     return {
       userId: settings.userId,
       channels: {
-        email: settings.emailEnabled ? {
-          enabled: true,
-          address: settings.emailAddress!
-        } : undefined
       }
     };
   }

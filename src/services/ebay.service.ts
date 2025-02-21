@@ -1,6 +1,6 @@
 // src/services/ebay.service.ts
 import axios from 'axios';
-import { ebayConfig } from '../config/ebay';
+import { ebayConfig } from '../config/ebay.config';
 import { EbaySearchParams, EbaySearchResults, EbayItem } from '../types/ebay.types';
 import { EbayAuthService } from './ebay-auth.service';
 

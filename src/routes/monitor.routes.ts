@@ -11,6 +11,8 @@ import { EbayAuthService } from '../services/ebay-auth.service';
 import { EbayService } from '../services/ebay.service';
 import { CacheService } from '../services/cache.service';
 import { CreateMonitorDTO } from '../types/monitor.types';
+import { EmailService } from '../services/email.service';
+import { VerificationService } from '../services/verification.service';
 
 const router = Router();
 
@@ -23,8 +25,10 @@ const ebayAuthService = new EbayAuthService(redis);
 const ebayService = new EbayService(ebayAuthService);
 const monitorQueue = new MonitorQueue(redis);
 const rateLimitService = new RateLimitService(redis);
-const monitorService = new MonitorService(prisma, rateLimitService, monitorQueue);
-const monitorController = new MonitorController(monitorService);
+const monitorService = new MonitorService(rateLimitService, monitorQueue);
+const emailService = new EmailService();
+const verificationService = new VerificationService();
+const monitorController = new MonitorController(monitorService, emailService, verificationService);
 const cacheService = new CacheService(redis);
 
 
@@ -69,7 +73,9 @@ router.post('/test-monitor', async (req, res, next) => {
         id: 'test-user-id',
         maxActiveMonitors: 10,
         maxApiCallsPerHour: 100,
-        maxNotificationsPerDay: 50
+        maxNotificationsPerDay: 50,
+        loginEmail: 'email@email.com',
+        loginProvider: 'email',
       }
     });
     console.log('✅ Test user ready:', testUser.id);

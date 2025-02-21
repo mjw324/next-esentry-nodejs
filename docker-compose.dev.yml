@@ -8,15 +8,9 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-    environment:
-      - NODE_ENV=production
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
+      - ./.npmrc:/app/.npmrc
     env_file:
       - .env
-    command: sh -c "npx prisma migrate deploy && pnpm dev"
     depends_on:
       redis:
         condition: service_healthy
