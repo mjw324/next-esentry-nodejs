@@ -2,9 +2,6 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Add .npmrc for registry access
-COPY .npmrc .npmrc
-
 # Install required packages
 RUN apk add --no-cache netcat-openbsd
 
@@ -22,10 +19,8 @@ COPY . .
 
 EXPOSE 3000
 
-# Generate Prisma Client (using project's prisma)
-RUN pnpm prisma generate --schema ./node_modules/@mjw324/prisma-shared/prisma/schema.prisma
-
-# Make start script executable
-RUN chmod +x /app/src/scripts/start.sh
+# Convert line endings and make executable
+RUN dos2unix /app/src/scripts/start.sh && \
+    chmod +x /app/src/scripts/start.sh
 
 CMD ["/app/src/scripts/start.sh"]

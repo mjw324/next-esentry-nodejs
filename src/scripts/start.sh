@@ -7,6 +7,10 @@ while ! nc -z $POSTGRES_HOST $POSTGRES_PORT; do
 done
 echo "Database is ready!"
 
+# Generate Prisma Client
+echo "Generating Prisma Client..."
+pnpm prisma generate
+
 # Run migrations
 echo "Running database migrations..."
 pnpm prisma migrate deploy --schema ./node_modules/@mjw324/prisma-shared/prisma/schema.prisma
