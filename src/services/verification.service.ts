@@ -21,30 +21,55 @@ export class VerificationService {
     const pin = this.generatePin();
     const expires = new Date(Date.now() + emailConfig.verificationTokenExpiry);
 
-    await prisma.notificationSettings.upsert({
-      where: { userId },
-      update: {
-        customEmailAddress: email,
-        emailVerificationToken: token,
-        emailVerificationPin: pin,
-        emailVerificationExpires: expires,
-        emailVerificationAttempts: 0,
-        emailEnabled: true,
-        emailVerified: false,
-        useLoginEmail: false,
-        lastEmailChangeDate: new Date()
-      },
-      create: {
+    // Check if this email already exists for this user
+    const existingEmail = await prisma.alertEmail.findFirst({
+      where: { 
         userId,
-        customEmailAddress: email,
-        emailVerificationToken: token,
-        emailVerificationPin: pin,
-        emailVerificationExpires: expires,
-        emailEnabled: true,
-        useLoginEmail: false,
-        lastEmailChangeDate: new Date()
-      },
+        email
+      }
     });
+
+    if (existingEmail) {
+      // Update the existing email record
+      await prisma.alertEmail.update({
+        where: { id: existingEmail.id },
+        data: {
+          status: 'pending verification',
+          verificationToken: token,
+          verificationPin: pin,
+          verificationExpires: expires,
+          verificationAttempts: 0,
+          updatedAt: new Date()
+        }
+      });
+    } else {
+      // Create a new email record
+      await prisma.alertEmail.create({
+        data: {
+          userId,
+          email,
+          status: 'pending verification',
+          verificationToken: token,
+          verificationPin: pin,
+          verificationExpires: expires,
+          verificationAttempts: 0
+        }
+      });
+    }
+
+    // If this is the user's first email, update the user record
+    const userEmails = await prisma.alertEmail.count({
+      where: { userId }
+    });
+
+    if (userEmails === 1) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { 
+          updatedAt: new Date() 
+        }
+      });
+    }
 
     return { token, pin };
   }
@@ -53,51 +78,328 @@ export class VerificationService {
     userId: string,
     tokenOrPin: string
   ): Promise<{ success: boolean; message: string }> {
-    const settings = await prisma.notificationSettings.findUnique({
-      where: { userId },
+    // Find the pending verification email
+    const pendingEmail = await prisma.alertEmail.findFirst({
+      where: { 
+        userId,
+        status: 'pending verification'
+      }
     });
-
-    if (!settings) {
+  
+    if (!pendingEmail) {
       return { success: false, message: 'Verification not found' };
     }
-
-    if (settings.emailVerified) {
-      return { success: false, message: 'Email already verified' };
-    }
-
-    if (settings.emailVerificationAttempts >= emailConfig.maxVerificationAttempts) {
+  
+    if (pendingEmail.verificationAttempts >= emailConfig.maxVerificationAttempts) {
       return { success: false, message: 'Too many verification attempts' };
     }
-
-    if (settings.emailVerificationExpires! < new Date()) {
+  
+    if (pendingEmail.verificationExpires! < new Date()) {
       return { success: false, message: 'Verification expired' };
     }
-
+  
     const isValid =
-      settings.emailVerificationToken === tokenOrPin ||
-      settings.emailVerificationPin === tokenOrPin;
-
+      pendingEmail.verificationToken === tokenOrPin ||
+      pendingEmail.verificationPin === tokenOrPin;
+  
     if (!isValid) {
-      await prisma.notificationSettings.update({
-        where: { userId },
+      // Increment verification attempts
+      await prisma.alertEmail.update({
+        where: { id: pendingEmail.id },
         data: {
-          emailVerificationAttempts: { increment: 1 },
+          verificationAttempts: { increment: 1 },
         },
       });
       return { success: false, message: 'Invalid verification code' };
     }
+  
+    // This method already sets to active, so no changes needed here
+    // Get current active email if any
+    const activeEmail = await prisma.alertEmail.findFirst({
+      where: { 
+        userId,
+        status: 'active'
+      }
+    });
+  
+    // Start a transaction to update email statuses
+    await prisma.$transaction(async (tx) => {
+      // If there's an active email, change it to 'ready' status
+      if (activeEmail) {
+        await tx.alertEmail.update({
+          where: { id: activeEmail.id },
+          data: { 
+            status: 'ready',
+            updatedAt: new Date()
+          }
+        });
+      }
+  
+      // Update the verified email to active status
+      await tx.alertEmail.update({
+        where: { id: pendingEmail.id },
+        data: {
+          status: 'active',
+          verificationToken: null,
+          verificationPin: null,
+          verificationExpires: null,
+          updatedAt: new Date()
+        }
+      });
+  
+      // Update the user's lastEmailChangeDate
+      await tx.user.update({
+        where: { id: userId },
+        data: { 
+          updatedAt: new Date() 
+        }
+      });
+    });
+  
+    return { success: true, message: 'Email verified successfully' };
+  }
+  
+  async verifyEmailById(
+    userId: string,
+    emailId: string,
+    otp: string
+  ): Promise<{ success: boolean; message: string; email?: any }> {
+    // Find the specific email by ID
+    const emailToVerify = await prisma.alertEmail.findFirst({
+      where: { 
+        id: emailId,
+        userId
+      }
+    });
+  
+    if (!emailToVerify) {
+      return { success: false, message: 'Email not found' };
+    }
+  
+    if (emailToVerify.status !== 'pending verification') {
+      return { success: false, message: 'Email is not pending verification' };
+    }
+  
+    if (emailToVerify.verificationAttempts >= emailConfig.maxVerificationAttempts) {
+      return { success: false, message: 'Too many verification attempts' };
+    }
+  
+    if (emailToVerify.verificationExpires! < new Date()) {
+      return { success: false, message: 'Verification code expired' };
+    }
+  
+    const isValid =
+      emailToVerify.verificationToken === otp ||
+      emailToVerify.verificationPin === otp;
+  
+    if (!isValid) {
+      // Increment verification attempts
+      await prisma.alertEmail.update({
+        where: { id: emailId },
+        data: {
+          verificationAttempts: { increment: 1 },
+        },
+      });
+      return { success: false, message: 'Invalid verification code' };
+    }
+  
+    // Count total emails for this user
+    const totalEmails = await prisma.alertEmail.count({
+      where: { userId }
+    });
+  
+    // Check if there's already an active email
+    const hasActiveEmail = await prisma.alertEmail.findFirst({
+      where: { 
+        userId,
+        status: 'active'
+      }
+    });
+  
+    // If this is the only email or there's no active email, set to active
+    const newStatus = (totalEmails === 1 || !hasActiveEmail) ? 'active' : 'ready';
+  
+    // Start a transaction to ensure consistent updates
+    await prisma.$transaction(async (tx) => {
+      // If setting this email to active and there's already an active email,
+      // update the currently active email to ready
+      if (newStatus === 'active' && hasActiveEmail) {
+        await tx.alertEmail.update({
+          where: { id: hasActiveEmail.id },
+          data: { 
+            status: 'ready',
+            updatedAt: new Date()
+          }
+        });
+      }
+  
+      // Update the verified email
+      await tx.alertEmail.update({
+        where: { id: emailId },
+        data: {
+          status: newStatus,
+          verificationToken: null,
+          verificationPin: null,
+          verificationExpires: null,
+          updatedAt: new Date()
+        }
+      });
+    });
+  
+    // Get the updated email
+    const updatedEmail = await prisma.alertEmail.findUnique({
+      where: { id: emailId },
+      select: {
+        id: true,
+        email: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+  
+    return { 
+      success: true, 
+      message: 'Email verified successfully',
+      email: updatedEmail
+    };
+  }
+  
+  async verifyEmailWithToken(
+    token: string
+  ): Promise<{ success: boolean; message: string; email?: any }> {
+    // Find the pending verification email with this token
+    const pendingEmail = await prisma.alertEmail.findFirst({
+      where: { 
+        verificationToken: token,
+        status: 'pending verification'
+      }
+    });
+  
+    if (!pendingEmail) {
+      return { success: false, message: 'Invalid or expired verification link' };
+    }
+  
+    if (pendingEmail.verificationExpires! < new Date()) {
+      return { success: false, message: 'Verification link has expired' };
+    }
+  
+    // Count total emails for this user
+    const totalEmails = await prisma.alertEmail.count({
+      where: { verificationToken: token }
+    });
+  
+    // Check if there's already an active email
+    const hasActiveEmail = await prisma.alertEmail.findFirst({
+      where: { 
+        verificationToken: token,
+        status: 'active'
+      }
+    });
+  
+    // If this is the only email or there's no active email, set to active
+    const newStatus = (totalEmails === 1 || !hasActiveEmail) ? 'active' : 'ready';
+  
+    // Start a transaction to ensure consistent updates
+    await prisma.$transaction(async (tx) => {
+      // If setting this email to active and there's already an active email,
+      // update the currently active email to ready
+      if (newStatus === 'active' && hasActiveEmail) {
+        await tx.alertEmail.update({
+          where: { id: hasActiveEmail.id },
+          data: { 
+            status: 'ready',
+            updatedAt: new Date()
+          }
+        });
+      }
+  
+      // Update the verified email
+      await tx.alertEmail.update({
+        where: { id: pendingEmail.id },
+        data: {
+          status: newStatus,
+          verificationToken: null,
+          verificationPin: null,
+          verificationExpires: null,
+          updatedAt: new Date()
+        }
+      });
+    });
+  
+    // Get the updated email
+    const updatedEmail = await prisma.alertEmail.findUnique({
+      where: { id: pendingEmail.id },
+      select: {
+        id: true,
+        email: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+  
+    return { 
+      success: true, 
+      message: 'Email verified successfully',
+      email: updatedEmail
+    };
+  }
+  
 
-    await prisma.notificationSettings.update({
-      where: { userId },
-      data: {
-        emailVerified: true,
-        emailEnabled: true,
-        emailVerificationToken: null,
-        emailVerificationPin: null,
-        emailVerificationExpires: null,
-      },
+  async resendVerificationCode(
+    userId: string,
+    emailId: string
+  ): Promise<{ success: boolean; message: string; token?: string; pin?: string }> {
+    // Find the email
+    const email = await prisma.alertEmail.findFirst({
+      where: { 
+        id: emailId,
+        userId
+      }
     });
 
-    return { success: true, message: 'Email verified successfully' };
+    if (!email) {
+      return { success: false, message: 'Email not found' };
+    }
+
+    if (email.status !== 'pending verification') {
+      return { success: false, message: 'Email is not pending verification' };
+    }
+
+    // Check for rate limiting of resend requests
+    // This could be implemented with Redis similar to other rate limits
+    // For now, using a simple time-based check
+    const lastUpdate = email.updatedAt;
+    const now = new Date();
+    const minutesSinceLastUpdate = (now.getTime() - lastUpdate.getTime()) / (1000 * 60);
+
+    if (minutesSinceLastUpdate < 2) { // Only allow resend every 2 minutes
+      return { success: false, message: 'Please wait before requesting another code' };
+    }
+
+    // Generate new verification tokens
+    const token = this.generateToken();
+    const pin = this.generatePin();
+    const expires = new Date(Date.now() + emailConfig.verificationTokenExpiry);
+
+    // Update the email with new verification tokens
+    await prisma.alertEmail.update({
+      where: { id: emailId },
+      data: {
+        verificationToken: token,
+        verificationPin: pin,
+        verificationExpires: expires,
+        verificationAttempts: 0, // Reset attempts
+        updatedAt: new Date()
+      }
+    });
+
+    return { 
+      success: true, 
+      message: 'New verification code generated',
+      token,
+      pin
+    };
   }
 }

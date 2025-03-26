@@ -19,29 +19,71 @@ export class MonitorQueue {
     });
   }
 
-  async addMonitorJob(monitorId: string, interval: number = 1800000) {
-    await this.queue.add(
-      `monitor:${monitorId}`,
-      { monitorId },
-      {
-        repeat: {
-          every: interval,
-        },
-        removeOnComplete: true,
-        removeOnFail: false,
-        backoff: {
-          type: 'exponential',
-          delay: 1000,
-        },
-      }
-    );
+  async addMonitorJob(monitorId: string, interval: number = 18000) {
+    try {
+      // First ensure no existing jobs are running for this monitor
+      await this.removeMonitorJob(monitorId);
+
+      // Create a scheduler ID that's consistent and unique for this monitor
+      const schedulerId = `monitor:${monitorId}`;
+
+      // Use upsertJobScheduler to create or update the job scheduler
+      const firstJob = await this.queue.upsertJobScheduler(
+        schedulerId,
+        { every: interval },
+        {
+          name: schedulerId,
+          data: { monitorId },
+          opts: {
+            removeOnComplete: true,
+            removeOnFail: false,
+            attempts: 3,
+            backoff: {
+              type: 'exponential',
+              delay: 1000,
+            },
+          }
+        }
+      );
+
+      console.log(`Job scheduler created/updated for monitor: ${monitorId}`);
+      return firstJob;
+    } catch (error) {
+      console.error(`Error creating job scheduler for monitor ${monitorId}:`, error);
+      throw error;
+    }
   }
 
   async removeMonitorJob(monitorId: string) {
-    const repeatableJobs = await this.queue.getJobSchedulers();
-    const job = repeatableJobs.find(job => job.id === `monitor:${monitorId}`);
-    if (job) {
-      await this.queue.removeJobScheduler(job.key);
+    try {
+      // The scheduler ID matches the pattern we used when creating it
+      const schedulerId = `monitor:${monitorId}`;
+
+      const removed = await this.queue.removeJobScheduler(schedulerId);
+
+      console.log(`Job scheduler removal attempt for ${schedulerId}: ${removed ? 'Successful' : 'Not found'}`);
+
+      if (removed) {
+        console.log(`Job scheduler removed for monitor: ${monitorId}`);
+      } else {
+        console.log(`No job scheduler found for monitor: ${monitorId}`);
+      }
+
+      const pendingJobs = await this.queue.getJobs(['waiting', 'active', 'delayed']);
+      for (const job of pendingJobs) {
+        if (job.name === schedulerId || (job.data && job.data.monitorId === monitorId)) {
+          await job.remove();
+          console.log(`Removed pending job for monitor: ${monitorId}`);
+        }
+      }
+
+      const schedulers = await this.queue.getJobSchedulers(0, 9, true);
+      console.log('Current job schedulers:', schedulers);
+
+      return removed;
+    } catch (error) {
+      console.error(`Error removing job scheduler for monitor ${monitorId}:`, error);
+      throw error;
     }
   }
 }

@@ -47,6 +47,12 @@ export class MonitorWorker {
       throw new Error('Monitor not found');
     }
 
+    // Check if monitor is still active before processing
+    if (monitor.status !== 'active') {
+      console.log(`Monitor ${monitorId} is now inactive, skipping job`);
+      return; // Skip processing for inactive monitors
+    }
+
     try {
       const previousResults = await this.cacheService.getResults(monitorId);
 

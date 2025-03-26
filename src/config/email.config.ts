@@ -6,7 +6,10 @@ export const emailConfig = {
       user: process.env.AWS_SES_SMTP_USERNAME,
       pass: process.env.AWS_SES_SMTP_PASSWORD,
   },
-  from: process.env.AWS_SES_FROM_EMAIL || 'noreply@esentry.dev',
+  from: {
+    name: 'eSentry',
+    address: process.env.AWS_SES_FROM_EMAIL || 'noreply@esentry.dev',
+  },
   verificationTokenExpiry: 24 * 60 * 60 * 1000, // 24 hours
   maxVerificationAttempts: 3,
 };

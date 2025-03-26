@@ -1,15 +1,14 @@
 import express from 'express';
 import cors from 'cors';
-import monitorRoutes from './routes/monitor.routes';
 import { errorHandler } from './middleware/error.middleware';
 import { Redis } from 'ioredis';
 import { redisConfig } from './config/redis.config';
 import { prisma } from './lib/prisma';
-import { MonitorQueue } from './queues/monitor.queue';
 import { RateLimitService } from './services/ratelimit.service';
-import { MonitorService } from './services/monitor.service';
-import { MonitorController } from './controllers/monitor.controller';
+import ebayNotificationRoutes from './routes/ebay-notification.routes';
+import monitorRoutes from './routes/monitor.routes';
 import emailRoutes from './routes/email.routes';
+import authRoutes from './routes/auth.routes'
 import { EbayAuthService } from './services/ebay-auth.service';
 import { EbayService } from './services/ebay.service';
 import { CacheService } from './services/cache.service';
@@ -17,8 +16,6 @@ import { NotificationService } from './services/notification.service';
 import { EmailService } from './services/email.service';
 import { ComparisonService } from './services/comparison.service';
 import { MonitorWorker } from './workers/monitor.worker';
-import ebayNotificationRoutes from './routes/ebay-notification.routes';
-import { VerificationService } from './services/verification.service';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -55,17 +52,13 @@ async function initializeRedis() {
 async function initialize() {
   try {
     await initializeRedis();
-    const monitorQueue = new MonitorQueue(redis);
     const rateLimitService = new RateLimitService(redis);
-    const monitorService = new MonitorService(rateLimitService, monitorQueue);    
     const ebayAuthService = new EbayAuthService(redis);
     const ebayService = new EbayService(ebayAuthService);
     const cacheService = new CacheService(redis);
     const emailService = new EmailService();
-    const notificationService = new NotificationService(rateLimitService);
+    const notificationService = new NotificationService(rateLimitService, emailService);
     const comparisonService = new ComparisonService(notificationService, emailService);
-    const verificationService = new VerificationService();
-    const monitorController = new MonitorController(monitorService, emailService, verificationService);
 
     // Initialize workers
     const monitorWorker = new MonitorWorker(
@@ -75,13 +68,20 @@ async function initialize() {
       redis
     );
     
-    app.use(cors());
+    app.use(cors({
+      origin: process.env.FRONTEND_URL,
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization']
+    }));
+    
     app.use(express.json());
     
     // Routes
     app.use('/api/ebay-notifications', ebayNotificationRoutes);
     app.use('/api/monitors', monitorRoutes);
-    app.use('/api/email', emailRoutes);
+    app.use('/api/emails', emailRoutes);
+    app.use('/api/auth', authRoutes)
     
     // Health check
     app.get('/health', (req, res) => {

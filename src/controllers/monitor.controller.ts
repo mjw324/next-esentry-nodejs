@@ -11,53 +11,118 @@ export class MonitorController {
     private verificationService: VerificationService,
   ) {}
 
-  async createMonitor(req: Request, res: Response, next: NextFunction) {
+  async createMonitor(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { useLoginEmail, customEmail } = req.body;
       const userId = req.user.id;
-
-      const user = await prisma.user.upsert({
+  
+      // Check if user has an active alert email
+      const user = await prisma.user.findUnique({
         where: { id: userId },
-        update: {},
-        create: {
-          id: userId,
-          loginEmail: customEmail || 'temp@email.com', // Temporary email if using custom
-          loginProvider: 'EMAIL', // Or appropriate provider
-        },
-      });
-      
-
-      // Check if user has notification settings
-      const existingSettings = await prisma.notificationSettings.findUnique({
-        where: { userId }
-      });
-
-      // Handle email settings
-      if (!existingSettings) {
-        if (useLoginEmail) {
-          // Email will be set automatically in MonitorService
-        } else if (customEmail) {
-          // Create verification for custom email
-          const { token, pin } = await this.verificationService.createEmailVerification(
-            userId,
-            customEmail
-          );
-          await this.emailService.sendVerificationEmail(customEmail, token, pin);
-        } else {
-          throw new Error('Either useLoginEmail or customEmail must be provided');
+        include: {
+          alertEmails: {
+            where: { status: 'active' }
+          }
         }
+      });
+  
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
       }
-
+  
+      // Check if user has an active alert email
+      if (user.alertEmails.length === 0) {
+        res.status(400).json({ 
+          error: 'No active email found', 
+          message: 'You need to set up an active alert email before creating a monitor',
+        });
+        return;
+      }
+  
       // Create the monitor
-      const monitor = await this.monitorService.createMonitor(
-        userId,
-        req.body
-      );
-
+      const monitor = await this.monitorService.createMonitor(userId, req.body);
+  
       res.status(201).json({
         monitor,
-        emailStatus: !existingSettings && customEmail ? 'verification_required' : 'ready'
+        emailStatus: 'ready'
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+  
+  async getUserMonitors(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user.id;
+  
+      // Get all monitors for the user and check if they have an active email
+      const result = await this.monitorService.getUserMonitors(userId);
+  
+      res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async toggleMonitorStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { active } = req.body;
+  
+      if (typeof active !== 'boolean') {
+        res.status(400).json({ error: 'Active status must be a boolean' });
+        return; // Just return without the response object
+      }
+      console.log(`"Im getting here ${id} ${active}`)
+      const userId = req.user.id;
+  
+      // Verify the monitor belongs to the user
+      const monitor = await prisma.monitor.findFirst({
+        where: { 
+          id,
+          userId
+        }
+      });
+      console.log(`"Im getting here ${id} ${active}`)
+      if (!monitor) {
+        res.status(404).json({ error: 'Monitor not found' });
+        return; // Just return without the response object
+      }
+      console.log(`"Im getting here ${id} ${active}`)
+      // Toggle the monitor status
+      const updatedMonitor = await this.monitorService.toggleMonitorStatus(id, active);
+  
+      res.status(200).json(updatedMonitor);
+      // No return statement here is correct
+    } catch (error) {
+      next(error);
+    }
+  }
+  
+  
+  async updateMonitor(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+  
+      // Update the monitor
+      const updatedMonitor = await this.monitorService.updateMonitor(id, userId, req.body);
+  
+      res.status(200).json(updatedMonitor);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteMonitor(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+  
+      // Delete the monitor
+      const deletedMonitor = await this.monitorService.deleteMonitor(id, userId);
+  
+      res.status(200).json(deletedMonitor);
     } catch (error) {
       next(error);
     }

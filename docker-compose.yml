@@ -1,24 +1,12 @@
 services:
   api:
-    build: 
+    build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
-    volumes:
-      - .:/app
-      - /app/node_modules
-    environment:
-      - NODE_ENV=development
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - EBAY_CLIENT_ID=${EBAY_CLIENT_ID}
-      - EBAY_CLIENT_SECRET=${EBAY_CLIENT_SECRET}
-      - EBAY_DEV_ID=${EBAY_DEV_ID}
-      - DATABASE_URL=${DATABASE_URL}
-    command: pnpm dev
+      - '3000:3000'
+    env_file:
+      - .env
     depends_on:
       redis:
         condition: service_healthy
@@ -26,38 +14,39 @@ services:
         condition: service_healthy
     networks:
       - app-network
+    restart: unless-stopped
 
   postgres:
     image: postgres:15-alpine
     ports:
-      - "5432:5432"
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      - '5432:5432'
+    env_file:
+      - .env
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER}']
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
       - app-network
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - '6379:6379'
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
       - app-network
+    restart: unless-stopped
 
 networks:
   app-network:

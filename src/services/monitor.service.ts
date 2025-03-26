@@ -7,13 +7,33 @@ export class MonitorService {
   constructor(
     private rateLimitService: RateLimitService,
     private monitorQueue: MonitorQueue
-  ) { }
+  ) {}
 
+  /**
+   * Create a new monitor for a user
+   * @param userId The ID of the user creating the monitor
+   * @param data The monitor data
+   * @returns The created monitor
+   */
   async createMonitor(userId: string, data: CreateMonitorDTO) {
-    // Check rate limits
-    await this.rateLimitService.validateUserMonitorLimit(userId);
-
-    // Create monitor in database
+    // Check if user exists with active alert email
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        alertEmails: {
+          where: { status: 'active' }
+        }
+      },
+    });
+  
+    if (!user) {
+      throw new Error('User not found');
+    }
+  
+    // Check if user has reached their monitor limit
+    this.rateLimitService.validateUserMonitorLimit(userId);
+  
+    // Create the monitor
     const monitor = await prisma.monitor.create({
       data: {
         userId,
@@ -21,31 +41,270 @@ export class MonitorService {
         excludedKeywords: data.excludedKeywords || [],
         minPrice: data.minPrice,
         maxPrice: data.maxPrice,
-        conditions: data.conditions,
-        sellers: data.sellers,
-        status: 'inactive', // Monitors are created as inactive by default
+        conditions: data.conditions || [],
+        sellers: data.sellers || [],
+        status: 'inactive',
       },
     });
+  
+    // Transform the response to match the expected format
+    return {
+      id: monitor.id,
+      userId: monitor.userId,
+      keywords: monitor.keywords,
+      excludedKeywords: monitor.excludedKeywords,
+      minPrice: monitor.minPrice,
+      maxPrice: monitor.maxPrice,
+      conditions: monitor.conditions,
+      sellers: monitor.sellers,
+      status: monitor.status,
+      nextCheckAt: monitor.nextCheckAt,
+      lastCheckTime: monitor.lastCheckTime,
+      lastResultCount: monitor.lastResultCount,
+    };
+  }
+  
 
-    return monitor;
+  /**
+   * Get all monitors for a user
+   * @param userId The ID of the user
+   * @returns Array of monitors and a boolean indicating if the user has an active email
+   */
+  async getUserMonitors(userId: string) {
+    // Check if user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Get all monitors for the user
+    const monitors = await prisma.monitor.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Check if the user has at least one active email
+    const activeEmail = await prisma.alertEmail.findFirst({
+      where: {
+        userId,
+        status: 'active'
+      }
+    });
+
+    const hasActiveEmail = !!activeEmail;
+
+    // Return both monitors and hasActiveEmail flag
+    return {
+      monitors: monitors.map(monitor => ({
+        id: monitor.id,
+        userId: monitor.userId,
+        keywords: monitor.keywords,
+        excludedKeywords: monitor.excludedKeywords,
+        minPrice: monitor.minPrice,
+        maxPrice: monitor.maxPrice,
+        conditions: monitor.conditions,
+        sellers: monitor.sellers,
+        status: monitor.status,
+        nextCheckAt: monitor.nextCheckAt,
+        lastCheckTime: monitor.lastCheckTime,
+        lastResultCount: monitor.lastResultCount,
+      })),
+      hasActiveEmail
+    };
   }
 
-  async activateMonitor(monitorId: string): Promise<void> {
+  /**
+   * Toggle a monitor's active status
+   * @param monitorId The ID of the monitor to update
+   * @param active Whether to activate or deactivate the monitor
+   * @returns The updated monitor
+   */
+  async toggleMonitorStatus(monitorId: string, active: boolean) {
+    console.log(`Toggling monitor ${monitorId} to ${active ? 'active' : 'inactive'}`);
     const monitor = await prisma.monitor.findUnique({
-      where: { id: monitorId }
+      where: { id: monitorId },
+      include: { user: true },
     });
 
     if (!monitor) {
       throw new Error('Monitor not found');
     }
 
-    // Update status
-    await prisma.monitor.update({
+    // If activating and already active, or deactivating and already inactive, do nothing
+    if ((active && monitor.status === 'active') || (!active && monitor.status === 'inactive')) {
+      return {
+        id: monitor.id,
+        userId: monitor.userId,
+        keywords: monitor.keywords,
+        excludedKeywords: monitor.excludedKeywords,
+        minPrice: monitor.minPrice,
+        maxPrice: monitor.maxPrice,
+        conditions: monitor.conditions,
+        sellers: monitor.sellers,
+        status: monitor.status,
+        nextCheckAt: monitor.nextCheckAt,
+        lastCheckTime: monitor.lastCheckTime,
+        lastResultCount: monitor.lastResultCount,
+      };
+    }
+
+    // If activating, check active monitor limit
+    if (active) {
+      // Check if user has reached their active monitor limit
+      const activeMonitorsCount = await prisma.monitor.count({
+        where: {
+          userId: monitor.userId,
+          status: 'active',
+        },
+      });
+
+      if (activeMonitorsCount >= monitor.user.maxActiveMonitors) {
+        throw new Error('Maximum number of active monitors reached');
+      }
+    }
+
+    // If deactivating, make sure we remove all jobs first
+    if (!active) {
+      console.log("removing monitor job")
+      await this.monitorQueue.removeMonitorJob(monitorId);
+    }
+
+    // Update monitor status
+    const updatedMonitor = await prisma.monitor.update({
       where: { id: monitorId },
-      data: { status: 'active' }
+      data: {
+        status: active ? 'active' : 'inactive',
+        nextCheckAt: active ? new Date() : null, // Schedule immediate check if activating
+      },
     });
 
-    // Add to queue
-    await this.monitorQueue.addMonitorJob(monitorId);
+    // If activating, add the job scheduler after the monitor is updated
+    if (active) {
+      await this.monitorQueue.addMonitorJob(monitorId);
+    }
+
+    // Return the updated monitor
+    return {
+      id: updatedMonitor.id,
+      userId: updatedMonitor.userId,
+      keywords: updatedMonitor.keywords,
+      excludedKeywords: updatedMonitor.excludedKeywords,
+      minPrice: updatedMonitor.minPrice,
+      maxPrice: updatedMonitor.maxPrice,
+      conditions: updatedMonitor.conditions,
+      sellers: updatedMonitor.sellers,
+      status: updatedMonitor.status,
+      nextCheckAt: updatedMonitor.nextCheckAt,
+      lastCheckTime: updatedMonitor.lastCheckTime,
+      lastResultCount: updatedMonitor.lastResultCount,
+    };
+  }
+
+  /**
+   * Update a monitor
+   * @param monitorId The ID of the monitor to update
+   * @param userId The ID of the user who owns the monitor
+   * @param updates The updates to apply
+   * @returns The updated monitor
+   */
+  async updateMonitor(monitorId: string, userId: string, updates: Partial<CreateMonitorDTO> & { status?: 'active' | 'inactive' }) {
+    // Verify the monitor exists and belongs to the user
+    const monitor = await prisma.monitor.findFirst({
+      where: { 
+        id: monitorId,
+        userId
+      },
+      include: { user: true },
+    });
+
+    if (!monitor) {
+      throw new Error('Monitor not found');
+    }
+
+    // If status is changing to active, check active monitor limit
+    if (updates.status === 'active' && monitor.status !== 'active') {
+      const activeMonitorsCount = await prisma.monitor.count({
+        where: {
+          userId,
+          status: 'active',
+        },
+      });
+
+      if (activeMonitorsCount >= monitor.user.maxActiveMonitors) {
+        throw new Error('Maximum number of active monitors reached');
+      }
+    }
+
+    // Prepare update data
+    const updateData: any = {};
+
+    if (updates.keywords !== undefined) updateData.keywords = updates.keywords;
+    if (updates.excludedKeywords !== undefined) updateData.excludedKeywords = updates.excludedKeywords;
+    if (updates.minPrice !== undefined) updateData.minPrice = updates.minPrice;
+    if (updates.maxPrice !== undefined) updateData.maxPrice = updates.maxPrice;
+    if (updates.conditions !== undefined) updateData.conditions = updates.conditions;
+    if (updates.sellers !== undefined) updateData.sellers = updates.sellers;
+    if (updates.status !== undefined) {
+      updateData.status = updates.status;
+
+      if (updates.status === 'active') {
+        updateData.nextCheckAt = new Date();
+        await this.monitorQueue.removeMonitorJob(monitorId);
+        await this.monitorQueue.addMonitorJob(monitorId);
+      } else {
+        await this.monitorQueue.removeMonitorJob(monitorId);
+      }
+    }
+
+    // Update the monitor
+    const updatedMonitor = await prisma.monitor.update({
+      where: { id: monitorId },
+      data: updateData,
+    });
+
+
+    // Return the updated monitor
+    return {
+      id: updatedMonitor.id,
+      userId: updatedMonitor.userId,
+      keywords: updatedMonitor.keywords,
+      excludedKeywords: updatedMonitor.excludedKeywords,
+      minPrice: updatedMonitor.minPrice,
+      maxPrice: updatedMonitor.maxPrice,
+      conditions: updatedMonitor.conditions,
+      sellers: updatedMonitor.sellers,
+      status: updatedMonitor.status,
+      nextCheckAt: updatedMonitor.nextCheckAt,
+      lastCheckTime: updatedMonitor.lastCheckTime,
+      lastResultCount: updatedMonitor.lastResultCount,
+    };
+  }
+  /**
+   * Delete a monitor
+   * @param monitorId The ID of the monitor to delete
+   * @param userId The ID of the user who owns the monitor
+   */
+  async deleteMonitor(monitorId: string, userId: string) {
+    // Verify the monitor exists and belongs to the user
+    const monitor = await prisma.monitor.findFirst({
+      where: { 
+        id: monitorId,
+        userId
+      }
+    });
+
+    if (!monitor) {
+      throw new Error('Monitor not found');
+    }
+    
+    await this.monitorQueue.removeMonitorJob(monitorId);
+
+    // Delete the monitor
+    await prisma.monitor.delete({
+      where: { id: monitorId }
+    });
   }
 }

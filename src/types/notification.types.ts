@@ -1,31 +1,19 @@
-export interface NotificationSettings {
-    userId: string;
-    channels: {
-        email?: {
-            enabled: boolean;
-            address: string;
-        };
-        sms?: {
-            enabled: boolean;
-            phoneNumber: string;
-        };
-        push?: {
-            enabled: boolean;
-            token: string;
-        };
-    };
+// src/types/notification.types.ts
+export interface EmailSettings {
+  userId: string;
+  activeEmail: {
+    id: string;
+    email: string;
+    status: string;
+  } | null;
 }
+
+export type NotificationType = 'MONITOR_RESULTS' | 'VERIFICATION' | 'SYSTEM';
 
 export interface NotificationPayload {
-    userId: string;
-    monitorId: string;
-    type: 'MONITOR_RESULTS' | 'MONITOR_ERROR' | 'SYSTEM';
-    message: string;
-    data?: Record<string, any>;
-}
-
-export interface NotificationChannel {
-    type: 'email' | 'sms' | 'push';
-    enabled: boolean;
-    destination: string;
+  userId: string;
+  monitorId: string;
+  type: NotificationType;
+  message: string;
+  data: Record<string, any>;
 }
