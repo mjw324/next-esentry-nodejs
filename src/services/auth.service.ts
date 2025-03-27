@@ -18,7 +18,6 @@ export class AuthService {
     // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user - remove emailVerified
     const user = await prisma.user.create({
       data: {
         email,
@@ -59,7 +58,6 @@ export class AuthService {
       return null;
     }
 
-    // Get the user without updating emailVerified
     const user = await prisma.user.findUnique({
       where: { email: verificationRecord.identifier },
     });
