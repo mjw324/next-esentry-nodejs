@@ -17,6 +17,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-ses": "^3.777.0",
     "@mjw324/prisma-shared": "^1.0.13",
     "@prisma/client": "^6.5.0",
     "axios": "^1.7.9",
@@ -28,11 +29,11 @@
     "express": "^5.0.1",
     "ioredis": "^5.5.0",
     "jsonwebtoken": "^9.0.2",
-    "nodemailer": "^6.10.0",
     "pg": "^8.13.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@aws-sdk/types": "^3.775.0",
     "@types/cors": "^2.8.17",
     "@types/ebay-oauth-nodejs-client": "^1.2.4",
     "@types/express": "^5.0.0",
