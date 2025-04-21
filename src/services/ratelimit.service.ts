@@ -89,7 +89,7 @@ export class RateLimitService {
 
     const maxCalls = user.maxApiCallsPerHour;
     const key = `api:${userId}:hourly`;
-
+    // TODO: Use cache.service.ts for this operation instead of  directly accessing redis
     // Get current count from Redis
     const currentCount = await this.redis.get(key);
     const count = currentCount ? parseInt(currentCount) : 0;

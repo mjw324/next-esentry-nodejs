@@ -31,6 +31,7 @@ export class EbayAuthService {
 
   async getAccessToken(): Promise<string> {
     try {
+      // TODO: Use cache.service.ts for this operation instead of directly accessing redis
       // Try to get cached token
       const [cachedToken, cachedExpiry] = await Promise.all([
         this.redis.get(this.TOKEN_KEY),
@@ -66,6 +67,7 @@ export class EbayAuthService {
 
       // Cache the token
       const expiryTime = Date.now() + (expires_in * 1000);
+      // TODO: Use cache.service.ts for this operation instead of directly accessing redis
       await Promise.all([
         this.redis.set(this.TOKEN_KEY, access_token),
         this.redis.set(this.TOKEN_EXPIRY_KEY, expiryTime.toString()),

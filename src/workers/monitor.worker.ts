@@ -21,8 +21,8 @@ export class MonitorWorker {
       { 
         connection: bullMQRedisConnection,
         concurrency: 5, // Adjust concurrency as needed
-        limiter: {
-          max: 10,
+        limiter: { // Maximum of 10 jobs per second to process
+          max: 10, 
           duration: 1000
         }
       }
@@ -67,7 +67,7 @@ export class MonitorWorker {
 
       // Transform eBay results to our internal format before caching
       const transformedResults = {
-        items: newResults.itemSummaries.map(item => ({
+        items: (newResults.itemSummaries || []).map(item => ({
           itemId: item.itemId,
           title: item.title,
           price: parseFloat(item.price.value),
