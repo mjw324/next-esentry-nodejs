@@ -19,7 +19,7 @@ export class MonitorQueue {
     });
   }
 
-  async addMonitorJob(monitorId: string, interval: number = 7200000) {
+  async addMonitorJob(monitorId: string, interval: number = parseInt(process.env.MONITOR_INTERVAL || '7200000')) {
     try {
       // First ensure no existing jobs are running for this monitor
       await this.removeMonitorJob(monitorId);
