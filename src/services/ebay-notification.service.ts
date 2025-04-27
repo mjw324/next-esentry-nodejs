@@ -19,12 +19,13 @@ export class EbayNotificationService {
 
     async processAccountDeletion(notification: EbayNotification): Promise<void> {
         // Log the notification for audit purposes
-        console.log('Received eBay account deletion notification:', {
-            notificationId: notification.notification.notificationId,
-            username: notification.notification.data.username,
-            eventDate: notification.notification.eventDate
-        });
-
-        // Since we don't store user data, we just acknowledge the notification
+        if(process.env.EBAY_NOTIFICATIONS == "true") {
+            console.log('Received eBay account deletion notification:', {
+                notificationId: notification.notification.notificationId,
+                username: notification.notification.data.username,
+                eventDate: notification.notification.eventDate
+            });    
+        }
+        // Since we don't store user data persistently, we just acknowledge the notification
     }
 }
