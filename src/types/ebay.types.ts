@@ -14,6 +14,7 @@ export interface EbaySeller {
 }
 
 export interface EbayItem {
+    listingMarketplaceId: any;
     itemId: string;
     title: string;
     price: EbayItemPrice;
@@ -26,6 +27,7 @@ export interface EbayItem {
 }
 
 export interface EbaySearchResults {
+    warnings: any;
     href: string;
     total: number;
     next?: string;
