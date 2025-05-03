@@ -19,18 +19,22 @@ export class MonitorQueue {
     });
   }
 
-  async addMonitorJob(monitorId: string, interval: number = parseInt(process.env.MONITOR_INTERVAL || '7200000')) {
+  async addMonitorJob(
+    monitorId: string, 
+    interval: number = parseInt(process.env.MONITOR_INTERVAL || '7200000'), 
+    initialDelay: number = 1000
+  ) {
     try {
       // First ensure no existing jobs are running for this monitor
       await this.removeMonitorJob(monitorId);
-
+  
       // Create a scheduler ID that's consistent and unique for this monitor
       const schedulerId = `monitor:${monitorId}`;
-
+  
       // Use upsertJobScheduler to create or update the job scheduler
       const firstJob = await this.queue.upsertJobScheduler(
         schedulerId,
-        { every: interval },
+        { every: interval, delay: initialDelay }, // Use the provided initial delay
         {
           name: schedulerId,
           data: { monitorId },
@@ -45,7 +49,7 @@ export class MonitorQueue {
           }
         }
       );
-
+  
       console.log(`Job scheduler created/updated for monitor: ${monitorId}`);
       return firstJob;
     } catch (error) {
@@ -53,6 +57,7 @@ export class MonitorQueue {
       throw error;
     }
   }
+  
 
   async removeMonitorJob(monitorId: string) {
     try {
