@@ -307,4 +307,35 @@ export class MonitorService {
       where: { id: monitorId }
     });
   }
+
+/**
+ * Initialize all active monitors on server startup
+ * @returns Number of activated monitors
+ */
+async initializeActiveMonitors(): Promise<number> {
+  console.log('Initializing active monitors on startup...');
+
+  // Find all monitors with 'active' status
+  const activeMonitors = await prisma.monitor.findMany({
+    where: { status: 'active' }
+  });
+
+  console.log(`Found ${activeMonitors.length} active monitors to initialize`);
+
+  // Add each monitor to the queue
+  let activatedCount = 0;
+  for (const monitor of activeMonitors) {
+    try {
+      await this.monitorQueue.addMonitorJob(monitor.id);
+      console.log(`Successfully initialized monitor: ${monitor.id}`);
+      activatedCount++;
+    } catch (error) {
+      console.error(`Failed to initialize monitor ${monitor.id}:`, error);
+    }
+  }
+
+  console.log(`Successfully initialized ${activatedCount} monitors`);
+  return activatedCount;
+}
+
 }

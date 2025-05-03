@@ -14,8 +14,10 @@ import { EbayService } from './services/ebay.service';
 import { CacheService } from './services/cache.service';
 import { NotificationService } from './services/notification.service';
 import { EmailService } from './services/email.service';
+import { MonitorService } from './services/monitor.service';
 import { ComparisonService } from './services/comparison.service';
 import { MonitorWorker } from './workers/monitor.worker';
+import { MonitorQueue } from './queues/monitor.queue';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -60,14 +62,22 @@ async function initialize() {
     const notificationService = new NotificationService(rateLimitService, emailService);
     const comparisonService = new ComparisonService(notificationService, emailService);
 
-    // Initialize workers
+    // Initialize worker, listening to the monitor queue for new jobs
     const monitorWorker = new MonitorWorker(
       ebayService,
       cacheService,
       comparisonService,
       redis
     );
-    
+
+    // Create MonitorQueue
+    const monitorQueue = new MonitorQueue(redis);
+
+    const monitorService = new MonitorService(rateLimitService, monitorQueue);
+
+    // Initialize all active monitors
+    await monitorService.initializeActiveMonitors();
+
     app.use(cors({
       origin: process.env.FRONTEND_URL,
       credentials: true,
