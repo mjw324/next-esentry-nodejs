@@ -138,7 +138,10 @@ export class EmailService {
       <div style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 15px;">
         <div style="display: flex; align-items: flex-start;">
           <div style="margin-right: 15px; width: 120px;">
-            <img src="${item.image.imageUrl}" alt="${item.title}" style="max-width: 100%; border-radius: 4px;">
+            ${item.image && item.image.imageUrl 
+              ? `<img src="${item.image.imageUrl}" alt="${item.title}" style="max-width: 100%; border-radius: 4px;">`
+              : `<div style="width: 120px; height: 90px; background-color: #f0f0f0; display: flex; align-items: center; justify-content: center; border-radius: 4px;">No Image</div>`
+            }
           </div>
           <div>
             <h3 style="margin-top: 0; margin-bottom: 5px;">
