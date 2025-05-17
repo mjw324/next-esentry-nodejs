@@ -19,9 +19,19 @@ pnpm prisma migrate deploy --schema ./node_modules/@mjw324/prisma-shared/prisma/
 echo "Starting application..."
 if [ "$NODE_ENV" = "production" ]; then
   echo "Building application..."
-  pnpm build || exit 1  # Exit if build fails
 
-  # Start the compiled application
+  # Attempt to build the application
+  if ! pnpm build; then
+    echo "⛔ BUILD FAILED: TypeScript compilation errors must be fixed before the application can start."
+    echo "⛔ The container will sleep."
+    echo "⛔ Fix the TypeScript errors and redeploy the application."
+
+    # Sleep forever to prevent container restart loop
+    # This allows inspection of the container or logs
+    tail -f /dev/null
+  fi
+
+  # Start the compiled application only if build succeeds
   pnpm start
 else
   pnpm dev
