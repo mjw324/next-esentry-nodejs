@@ -147,7 +147,7 @@ export class EmailController {
       }
 
       // Start a transaction
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: { alertEmail: { findFirst: (arg0: { where: { userId: string; status: string; }; }) => any; update: (arg0: { where: { id: any; } | { id: string; }; data: { status: string; updatedAt: Date; } | { status: string; updatedAt: Date; }; }) => any; }; user: { update: (arg0: { where: { id: string; }; data: { updatedAt: Date; }; }) => any; }; }) => {
         // Find current active email if any
         const activeEmail = await tx.alertEmail.findFirst({
           where: {

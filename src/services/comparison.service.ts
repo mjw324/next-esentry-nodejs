@@ -1,6 +1,6 @@
 import { NotificationService } from "./notification.service";
 import { EmailService } from "./email.service";
-import { EbaySearchResults, EbayItem } from "../types/ebay.types";
+import { EbayItem, TransformedEbayResults } from "../types/ebay.types";
 
 export class ComparisonService {
     constructor(
@@ -11,8 +11,8 @@ export class ComparisonService {
     async compareResults(
         monitorId: string,
         userId: string,
-        oldResults: EbaySearchResults,
-        newResults: EbaySearchResults
+        oldResults: TransformedEbayResults,
+        newResults: TransformedEbayResults
     ): Promise<void> {
         const newItems = this.findNewItems(oldResults.itemSummaries, newResults.itemSummaries);
 

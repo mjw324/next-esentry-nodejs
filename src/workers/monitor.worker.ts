@@ -6,14 +6,14 @@ import { ComparisonService } from '../services/comparison.service';
 import { prisma } from '../lib/prisma';
 import { Job } from 'bullmq';
 import { bullMQRedisConnection } from '../config/redis.config';
+import { TransformedEbayResults } from '../types/ebay.types';
 
 export class MonitorWorker {
   private worker: Worker;
   constructor(
     private ebayService: EbayService,
     private cacheService: CacheService,
-    private comparisonService: ComparisonService,
-    redis: Redis
+    private comparisonService: ComparisonService
   ) {
     this.worker = new Worker(
       'monitor-queue',
@@ -66,7 +66,7 @@ export class MonitorWorker {
       });
 
       // Transform eBay results to our internal format before caching
-      const transformedResults = {
+      const transformedResults: TransformedEbayResults = {
         items: (newResults.itemSummaries || []).map(item => ({
           itemId: item.itemId,
           title: item.title,

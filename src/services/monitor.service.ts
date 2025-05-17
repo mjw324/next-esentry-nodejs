@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma';
 import { CreateMonitorDTO } from '../types/monitor.types';
 import { RateLimitService } from './ratelimit.service';
 import { MonitorQueue } from '../queues/monitor.queue';
+import { Monitor } from '@prisma/client';
 
 export class MonitorService {
   constructor(
@@ -98,7 +99,7 @@ export class MonitorService {
 
     // Return both monitors and hasActiveEmail flag
     return {
-      monitors: monitors.map(monitor => ({
+      monitors: monitors.map((monitor: Monitor) => ({
         id: monitor.id,
         userId: monitor.userId,
         keywords: monitor.keywords,
@@ -306,48 +307,5 @@ export class MonitorService {
     await prisma.monitor.delete({
       where: { id: monitorId }
     });
-  }
-
-  /**
-   * Initialize all active monitors on server startup
-   * @returns Number of activated monitors
-   */
-  async initializeActiveMonitors(): Promise<number> {
-    console.log('Initializing active monitors on startup...');
-
-    // Find all monitors with 'active' status
-    const activeMonitors = await prisma.monitor.findMany({
-      where: { status: 'active' }
-    });
-
-    const totalMonitors = activeMonitors.length;
-    console.log(`Found ${totalMonitors} active monitors to initialize`);
-
-    if (totalMonitors === 0) {
-      return 0;
-    }
-
-    // Calculate delay increment - spread evenly over one hour
-    const ONE_HOUR_MS = 3600000;
-    const delayIncrement = Math.floor(ONE_HOUR_MS / totalMonitors);
-
-    // Add each monitor to the queue with staggered delays
-    let activatedCount = 0;
-    for (let i = 0; i < activeMonitors.length; i++) {
-      const monitor = activeMonitors[i];
-      // Calculate individual delay for this monitor
-      const initialDelay = i * delayIncrement;
-
-      try {
-        await this.monitorQueue.addMonitorJob(monitor.id, parseInt(process.env.MONITOR_INTERVAL || '7200000'), initialDelay);
-        console.log(`Successfully initialized monitor: ${monitor.id} with ${initialDelay}ms initial delay`);
-        activatedCount++;
-      } catch (error) {
-        console.error(`Failed to initialize monitor ${monitor.id}:`, error);
-      }
-    }
-
-    console.log(`Successfully initialized ${activatedCount} monitors with staggered schedule`);
-    return activatedCount;
   }
 }

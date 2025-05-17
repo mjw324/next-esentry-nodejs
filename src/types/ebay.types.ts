@@ -36,6 +36,24 @@ export interface EbaySearchResults {
     itemSummaries: EbayItem[];
 }
 
+export interface TransformedEbayResults {
+    items: { 
+      itemId: string;
+      title: string;
+      price: number;
+      condition: string;
+      seller: string;
+      link: string;
+      timestamp: Date;
+    }[];
+    total: number;
+    timestamp: Date;
+    href: string;
+    limit: number;
+    offset: number;
+    itemSummaries: EbayItem[];
+}
+
 export interface EbaySearchParams {
     keywords: string[];
     excludedKeywords: string[];

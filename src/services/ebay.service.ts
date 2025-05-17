@@ -61,24 +61,28 @@ export class EbayService {
   
 
   private buildFilterString(params: EbaySearchParams): string {
-    const filters: string[] = ['priceCurrency:USD'];
-
-    // Add price filter
+    const filters: string[] = [];
+  
+    // Add price filter with currency only when price is specified
     if (params.minPrice !== undefined || params.maxPrice !== undefined) {
-      const priceFilter = `price:[${params.minPrice || ''}..${params.maxPrice || ''}]`;
+      // Format price filter correctly
+      const priceFilter = `price:[${params.minPrice || '0'}..${params.maxPrice || ''}]`;
       filters.push(priceFilter);
+  
+      // Add currency filter only when using price
+      filters.push('priceCurrency:USD');
     }
-
+  
     // Add condition filter
     if (params.conditions.length > 0) {
-      filters.push(`conditions:{${params.conditions.join('|')}}`);
+      filters.push(`conditionIds:{${params.conditions.join('|')}}`);
     }
-
+  
     // Add sellers filter
     if (params.sellers.length > 0) {
       filters.push(`sellers:{${params.sellers.join('|')}}`);
     }
-
+  
     return filters.join(',');
   }
 
@@ -107,7 +111,7 @@ export class EbayService {
         itemTypes: data.itemSummaries ? 
           [...new Set(data.itemSummaries.map(item => item.condition))].map(c => `${c}`).join(', ') : '',
       },
-      warnings: data.warnings?.map(w => ({
+      warnings: data.warnings?.map((w: { errorId: any; message: any; }) => ({
         errorId: w.errorId,
         message: w.message
       })) || []

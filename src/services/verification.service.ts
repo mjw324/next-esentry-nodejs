@@ -123,7 +123,7 @@ export class VerificationService {
     });
   
     // Start a transaction to update email statuses
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: { alertEmail: { update: (arg0: { where: { id: any; } | { id: any; }; data: { status: string; updatedAt: Date; } | { status: string; verificationToken: null; verificationPin: null; verificationExpires: null; updatedAt: Date; }; }) => any; }; user: { update: (arg0: { where: { id: string; }; data: { updatedAt: Date; }; }) => any; }; }) => {
       // If there's an active email, change it to 'ready' status
       if (activeEmail) {
         await tx.alertEmail.update({
@@ -220,7 +220,7 @@ export class VerificationService {
     const newStatus = (totalEmails === 1 || !hasActiveEmail) ? 'active' : 'ready';
   
     // Start a transaction to ensure consistent updates
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: { alertEmail: { update: (arg0: { where: { id: any; } | { id: string; }; data: { status: string; updatedAt: Date; } | { status: string; verificationToken: null; verificationPin: null; verificationExpires: null; updatedAt: Date; }; }) => any; }; }) => {
       // If setting this email to active and there's already an active email,
       // update the currently active email to ready
       if (newStatus === 'active' && hasActiveEmail) {
@@ -301,7 +301,7 @@ export class VerificationService {
     const newStatus = (totalEmails === 1 || !hasActiveEmail) ? 'active' : 'ready';
   
     // Start a transaction to ensure consistent updates
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: { alertEmail: { update: (arg0: { where: { id: any; } | { id: any; }; data: { status: string; updatedAt: Date; } | { status: string; verificationToken: null; verificationPin: null; verificationExpires: null; updatedAt: Date; }; }) => any; }; }) => {
       // If setting this email to active and there's already an active email,
       // update the currently active email to ready
       if (newStatus === 'active' && hasActiveEmail) {

@@ -6,7 +6,7 @@ export const redisConfig: RedisOptions = {
   maxRetriesPerRequest: null,
   enableReadyCheck: true,
   readOnly: false,
-  reconnectOnError: (err) => {
+  reconnectOnError: (err: Error) => {
     const targetError = 'READONLY';
     if (err.message.includes(targetError)) {
       // Log the error before reconnecting
@@ -15,7 +15,7 @@ export const redisConfig: RedisOptions = {
     }
     return false;
   },
-  retryStrategy: (times) => {
+  retryStrategy: (times: number) => {
     // Exponential backoff with a maximum wait of 5 seconds
     return Math.min(Math.exp(times), 5000);
   }
@@ -27,7 +27,7 @@ export const bullMQRedisConnection = {
   maxRetriesPerRequest: null,
   enableReadyCheck: true,
   readOnly: false,
-  reconnectOnError: (err) => {
+  reconnectOnError: (err: Error) => {
     const targetError = 'READONLY';
     if (err.message.includes(targetError)) {
       console.warn('BullMQ Redis READONLY error detected, attempting reconnection');
@@ -35,7 +35,7 @@ export const bullMQRedisConnection = {
     }
     return false;
   },
-  retryStrategy: (times) => {
+  retryStrategy: (times: number) => {
     // Exponential backoff with a maximum wait of 5 seconds
     return Math.min(Math.exp(times), 5000);
   }
