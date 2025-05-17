@@ -19,7 +19,7 @@ pnpm prisma migrate deploy --schema ./node_modules/@mjw324/prisma-shared/prisma/
 echo "Starting application..."
 if [ "$NODE_ENV" = "production" ]; then
   echo "Building application..."
-  pnpm build
+  pnpm build || exit 1  # Exit if build fails
 
   # Start the compiled application
   pnpm start
