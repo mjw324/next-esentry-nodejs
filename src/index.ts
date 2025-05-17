@@ -64,8 +64,7 @@ async function initialize() {
     const monitorWorker = new MonitorWorker(
       ebayService,
       cacheService,
-      comparisonService,
-      redis
+      comparisonService
     );
 
     app.use(cors({
