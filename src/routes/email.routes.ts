@@ -19,6 +19,13 @@ const emailService = new EmailService();
 const verificationService = new VerificationService();
 const emailController = new EmailController(emailService, verificationService);
 
+// Public route for token verification (no auth required)
+router.post(
+  '/verify-token',
+  rateLimitMiddleware,
+  emailController.verifyToken
+);
+
 router.use(authMiddleware, rateLimitMiddleware);
 
 router.get(
@@ -58,9 +65,5 @@ router.get(
   emailController.getEmailStatus
 );
 
-router.post(
-  '/verify-token',
-  emailController.verifyToken
-);
 
 export default router;

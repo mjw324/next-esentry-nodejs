@@ -17,6 +17,7 @@ export class ComparisonService {
         const newItems = this.findNewItems(oldResults.itemSummaries, newResults.itemSummaries);
 
         if (newItems.length > 0) {
+            console.log(`Found ${newItems.length} new items for monitor ${monitorId}: `, newItems);
             await this.notificationService.sendNotification({
                 userId,
                 monitorId,
