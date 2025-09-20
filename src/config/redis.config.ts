@@ -37,10 +37,8 @@ const baseConfig: Partial<RedisOptions> = {
   maxRetriesPerRequest: null,
   enableReadyCheck: true,
   readOnly: false,
-  // Add connection timeout
   connectTimeout: 10000,
-  // Enable family 4 (IPv4) to avoid IPv6 issues
-  family: 4,
+  family: 0, // Dual-stack for both IPv4 and IPv6
   reconnectOnError: (err: Error) => {
     const targetError = 'READONLY';
     if (err.message.includes(targetError)) {
@@ -56,6 +54,7 @@ const baseConfig: Partial<RedisOptions> = {
     return delay;
   }
 };
+
 
 // Main Redis configuration
 export const redisConfig: RedisOptions = (() => {

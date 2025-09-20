@@ -33,18 +33,15 @@ let redis: Redis;
 if (process.env.REDIS_URL) {
   console.log('Initializing Redis with REDIS_URL');
   // When using REDIS_URL, ioredis can parse it directly
-  redis = new Redis(process.env.REDIS_URL, {
+  redis = new Redis(process.env.REDIS_URL + "?family=0", {
     lazyConnect: true,
     maxRetriesPerRequest: 3,
     enableReadyCheck: true,
     connectTimeout: 10000,
-    // Force IPv4 to avoid Railway DNS issues
-    family: 4,
     retryStrategy: (times: number) => {
       const delay = Math.min(times * 100, 5000);
       console.log(`Redis retry attempt ${times}, waiting ${delay}ms`);
       if (times > 20) {
-        // Stop retrying after 20 attempts
         console.error('Redis connection failed after 20 attempts');
         return null;
       }
