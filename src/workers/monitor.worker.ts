@@ -1,5 +1,4 @@
-import { Worker, ConnectionOptions } from 'bullmq';
-import { Redis } from 'ioredis';
+import { Worker } from 'bullmq';
 import { EbayService } from '../services/ebay.service';
 import { CacheService } from '../services/cache.service';
 import { ComparisonService } from '../services/comparison.service';

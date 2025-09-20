@@ -1,114 +1,50 @@
 import { RedisOptions } from 'ioredis';
+import { QueueOptions } from 'bullmq';
 
-// Parse Redis URL if available (Railway provides this)
+// Parse Redis URL from environment variable
 function parseRedisUrl(url: string): RedisOptions {
-  try {
-    const parsed = new URL(url);
-    
-    // Handle Railway's internal Redis URL format
-    // Railway uses redis://:password@servicename.railway.internal:port
-    const config: RedisOptions = {
-      host: parsed.hostname,
-      port: parseInt(parsed.port || '6379'),
-      // Railway puts password in the password field of the URL
-      password: parsed.password || undefined,
-      // Sometimes username is 'default' or empty for Redis
-      username: parsed.username || undefined,
-      // Database number from path (e.g., /0)
-      db: parsed.pathname ? parseInt(parsed.pathname.slice(1) || '0') : 0,
-    };
-    
-    console.log('Parsed Redis config:', {
-      host: config.host,
-      port: config.port,
-      hasPassword: !!config.password,
-      db: config.db
-    });
-    
-    return config;
-  } catch (error) {
-    console.error('Failed to parse Redis URL:', error);
-    throw error;
-  }
+  const parsed = new URL(url);
+  return {
+    host: parsed.hostname,
+    port: parseInt(parsed.port || '6379'),
+    password: parsed.password || undefined,
+    username: parsed.username || undefined,
+    db: parsed.pathname ? parseInt(parsed.pathname.slice(1) || '0') : 0,
+  };
 }
 
-// Base configuration for Redis
-const baseConfig: Partial<RedisOptions> = {
+// Base Redis configuration
+const baseConfig: RedisOptions = {
+  family: 0, // Enable dual-stack lookup for both IPv4 and IPv6
   maxRetriesPerRequest: null,
-  enableReadyCheck: true,
-  readOnly: false,
   connectTimeout: 10000,
-  family: 0, // Dual-stack for both IPv4 and IPv6
-  reconnectOnError: (err: Error) => {
-    const targetError = 'READONLY';
-    if (err.message.includes(targetError)) {
-      console.warn('Redis READONLY error detected, attempting reconnection');
-      return true;
-    }
-    return false;
-  },
-  retryStrategy: (times: number) => {
-    const maxDelay = 5000;
-    const delay = Math.min(times * 100, maxDelay);
-    console.log(`Redis retry attempt ${times}, waiting ${delay}ms`);
-    return delay;
-  }
+  enableReadyCheck: true,
+  reconnectOnError: (err: Error) => err.message.includes('READONLY'),
+  retryStrategy: (times: number) => Math.min(times * 100, 5000),
 };
 
-
-// Main Redis configuration
-export const redisConfig: RedisOptions = (() => {
-  if (process.env.REDIS_URL) {
-    console.log('Using REDIS_URL for connection');
-    return {
+// Redis configuration based on environment variable (REDIS_URL or custom config)
+export const redisConfig: RedisOptions = process.env.REDIS_URL
+  ? {
       ...parseRedisUrl(process.env.REDIS_URL),
-      ...baseConfig
-    };
-  } else {
-    console.log('Using individual Redis config variables');
-    return {
+      ...baseConfig,
+    }
+  : {
       host: process.env.REDIS_HOST || 'localhost',
       port: parseInt(process.env.REDIS_PORT || '6379'),
       password: process.env.REDIS_PASSWORD,
-      ...baseConfig
+      ...baseConfig,
     };
-  }
-})();
 
 // BullMQ Redis connection configuration
-export const bullMQRedisConnection = (() => {
-  const bullConfig = {
-    maxRetriesPerRequest: null,
-    enableReadyCheck: true,
-    readOnly: false,
-    family: 4,
-    connectTimeout: 10000,
-    reconnectOnError: (err: Error) => {
-      const targetError = 'READONLY';
-      if (err.message.includes(targetError)) {
-        console.warn('BullMQ Redis READONLY error detected, attempting reconnection');
-        return true;
-      }
-      return false;
-    },
-    retryStrategy: (times: number) => {
-      const maxDelay = 5000;
-      const delay = Math.min(times * 100, maxDelay);
-      return delay;
-    }
-  };
-  
-  if (process.env.REDIS_URL) {
-    return {
+export const bullMQRedisConnection: QueueOptions['connection'] = process.env.REDIS_URL
+  ? {
       ...parseRedisUrl(process.env.REDIS_URL),
-      ...bullConfig
-    };
-  } else {
-    return {
+      family: 0, // Enable dual-stack lookup
+    }
+  : {
       host: process.env.REDIS_HOST || 'localhost',
       port: parseInt(process.env.REDIS_PORT || '6379'),
       password: process.env.REDIS_PASSWORD,
-      ...bullConfig
+      family: 0, // Enable dual-stack lookup
     };
-  }
-})();
