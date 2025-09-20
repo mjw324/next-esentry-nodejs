@@ -20,69 +20,131 @@ import { MonitorWorker } from './workers/monitor.worker';
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Initialize Redis with Railway URL or local config
-const redis = process.env.REDIS_URL 
-  ? new Redis(process.env.REDIS_URL, {
-      lazyConnect: true,
-      maxRetriesPerRequest: 3,
-      retryStrategy: (times: number) => {
-        const delay = Math.min(times * 50, 2000);
-        console.log(`Redis connection retry #${times} after ${delay}ms`);
-        return delay;
-      }
-    })
-  : new Redis({
-      ...redisConfig,
-      lazyConnect: true,
-    });
+// Log environment for debugging
+console.log('=== Starting Application ===');
+console.log('Environment:', process.env.NODE_ENV);
+console.log('Port:', port);
+console.log('Redis URL provided:', !!process.env.REDIS_URL);
+console.log('Database URL provided:', !!process.env.DATABASE_URL);
 
+// Initialize Redis with better error handling
+let redis: Redis;
+
+if (process.env.REDIS_URL) {
+  console.log('Initializing Redis with REDIS_URL');
+  // When using REDIS_URL, ioredis can parse it directly
+  redis = new Redis(process.env.REDIS_URL, {
+    lazyConnect: true,
+    maxRetriesPerRequest: 3,
+    enableReadyCheck: true,
+    connectTimeout: 10000,
+    // Force IPv4 to avoid Railway DNS issues
+    family: 4,
+    retryStrategy: (times: number) => {
+      const delay = Math.min(times * 100, 5000);
+      console.log(`Redis retry attempt ${times}, waiting ${delay}ms`);
+      if (times > 20) {
+        // Stop retrying after 20 attempts
+        console.error('Redis connection failed after 20 attempts');
+        return null;
+      }
+      return delay;
+    }
+  });
+} else {
+  console.log('Initializing Redis with individual config');
+  redis = new Redis({
+    ...redisConfig,
+    lazyConnect: true,
+  });
+}
+
+// Better error handling for Redis
 redis.on('error', (error) => {
-  console.error('Redis connection error:', error);
+  console.error('Redis error event:', error.message);
+  if (error.message.includes('ENOTFOUND')) {
+    console.error('Redis hostname not found. Check if Redis service is properly linked in Railway.');
+  }
 });
 
 redis.on('connect', () => {
-  console.log('Successfully connected to Redis');
+  console.log('Redis: Connection established');
 });
 
 redis.on('ready', () => {
-  console.log('Redis connection is ready');
+  console.log('Redis: Ready for commands');
 });
 
-// Connect to Redis with retry logic
+redis.on('reconnecting', (delay: number) => {
+  console.log(`Redis: Reconnecting in ${delay}ms`);
+});
+
+redis.on('close', () => {
+  console.log('Redis: Connection closed');
+});
+
+// Connect to Redis with better retry logic
 async function initializeRedis() {
-  let retries = 5;
-  const retryDelay = 5000;
+  const maxRetries = 10;
+  const retryDelay = 3000;
   
-  while (retries > 0) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      console.log(`Redis connection attempt ${attempt}/${maxRetries}`);
       await redis.connect();
-      console.log('Redis connected successfully');
-      return;
-    } catch (error) {
-      console.error(`Failed to connect to Redis (${retries} retries left):`, error);
-      retries--;
       
-      if (retries === 0) {
-        console.error('Failed to connect to Redis after all retries');
-        throw error;
+      // Test the connection
+      const pong = await redis.ping();
+      if (pong === 'PONG') {
+        console.log('Redis connection verified with PING/PONG');
+        return;
+      }
+    } catch (error: any) {
+      console.error(`Redis connection attempt ${attempt} failed:`, error.message);
+      
+      if (error.message.includes('ENOTFOUND')) {
+        console.error('Cannot resolve Redis hostname. Checking environment...');
+        console.error('REDIS_URL:', process.env.REDIS_URL ? 'Set' : 'Not set');
+        
+        if (attempt === maxRetries) {
+          throw new Error('Redis service not found. Ensure Redis service is created and linked in Railway.');
+        }
       }
       
-      console.log(`Waiting ${retryDelay}ms before retry...`);
-      await new Promise(resolve => setTimeout(resolve, retryDelay));
+      if (attempt < maxRetries) {
+        console.log(`Waiting ${retryDelay}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      } else {
+        throw error;
+      }
     }
   }
 }
 
-// Initialize application
+// Initialize application with better error messages
 async function initialize() {
   try {
+    // First check if we have required environment variables
+    if (!process.env.DATABASE_URL && !process.env.POSTGRES_HOST) {
+      throw new Error('DATABASE_URL or POSTGRES_HOST must be set. Ensure PostgreSQL service is linked in Railway.');
+    }
+    
+    if (!process.env.REDIS_URL && !process.env.REDIS_HOST) {
+      console.warn('WARNING: Neither REDIS_URL nor REDIS_HOST is set. Redis features will be disabled.');
+      // You might want to run in a degraded mode without Redis
+      // Or throw an error if Redis is required
+      throw new Error('REDIS_URL must be set. Ensure Redis service is linked in Railway.');
+    }
+    
     // Connect to Redis
+    console.log('Connecting to Redis...');
     await initializeRedis();
     
     // Test database connection
-    console.log('Testing database connection...');
+    console.log('Connecting to Database...');
     await prisma.$connect();
-    console.log('Database connected successfully');
+    const dbTest = await prisma.$queryRaw`SELECT 1 as test`;
+    console.log('Database connection verified');
     
     // Initialize services
     const rateLimitService = new RateLimitService(redis);
@@ -93,12 +155,13 @@ async function initialize() {
     const notificationService = new NotificationService(rateLimitService, emailService);
     const comparisonService = new ComparisonService(notificationService, emailService);
     
-    // Initialize worker, listening to the monitor queue for new jobs
+    // Initialize worker
     const monitorWorker = new MonitorWorker(
       ebayService,
       cacheService,
       comparisonService
     );
+    console.log('All services initialized');
     
     // Configure CORS
     app.use(cors({
@@ -118,43 +181,82 @@ async function initialize() {
    
     // Health check
     app.get('/health', async (req, res) => {
+      const health: any = {
+        status: 'checking',
+        timestamp: new Date().toISOString(),
+        services: {}
+      };
+      
       try {
         // Check Redis
-        await redis.ping();
+        try {
+          const redisPing = await redis.ping();
+          health.services.redis = redisPing === 'PONG' ? 'healthy' : 'unhealthy';
+        } catch (error) {
+          health.services.redis = 'error';
+        }
         
         // Check Database
-        await prisma.$queryRaw`SELECT 1`;
+        try {
+          await prisma.$queryRaw`SELECT 1`;
+          health.services.database = 'healthy';
+        } catch (error) {
+          health.services.database = 'error';
+        }
         
-        res.json({ 
-          status: 'healthy',
-          services: {
-            redis: 'connected',
-            database: 'connected'
-          }
-        });
+        // Overall status
+        const allHealthy = Object.values(health.services).every(s => s === 'healthy');
+        health.status = allHealthy ? 'healthy' : 'degraded';
+        
+        res.status(allHealthy ? 200 : 503).json(health);
       } catch (error) {
-        res.status(503).json({ 
-          status: 'unhealthy',
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        health.status = 'unhealthy';
+        health.error = error instanceof Error ? error.message : 'Unknown error';
+        res.status(503).json(health);
       }
     });
     
+    // Detailed test endpoint
     app.get('/test', async (req, res) => {
       try {
-        // Test database connection
-        const userCount = await prisma.user.count();
-        res.json({
-          status: 'success',
-          message: 'Database connection successful',
-          userCount
-        });
+        const results: any = {
+          environment: {
+            NODE_ENV: process.env.NODE_ENV,
+            hasRedisUrl: !!process.env.REDIS_URL,
+            hasDatabaseUrl: !!process.env.DATABASE_URL,
+          },
+          redis: {},
+          database: {}
+        };
+        
+        // Test Redis
+        try {
+          await redis.ping();
+          results.redis.status = 'connected';
+          results.redis.info = {
+            host: redis.options.host,
+            port: redis.options.port,
+          };
+        } catch (error: any) {
+          results.redis.status = 'error';
+          results.redis.error = error.message;
+        }
+        
+        // Test Database
+        try {
+          const userCount = await prisma.user.count();
+          results.database.status = 'connected';
+          results.database.userCount = userCount;
+        } catch (error: any) {
+          results.database.status = 'error';
+          results.database.error = error.message;
+        }
+        
+        res.json(results);
       } catch (error) {
-        console.error('Database connection error:', error);
         res.status(500).json({
           status: 'error',
-          message: 'Database connection failed',
-          error: error instanceof Error ? error.message : 'Unknown error'
+          message: error instanceof Error ? error.message : 'Unknown error'
         });
       }
     });
@@ -162,32 +264,49 @@ async function initialize() {
     app.use(errorHandler);
    
     app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
+      console.log('=== Server Started ===');
+      console.log(`Listening on port ${port}`);
       console.log(`Environment: ${process.env.NODE_ENV}`);
       console.log(`Frontend URL: ${process.env.FRONTEND_URL}`);
+      console.log(`Health check: http://localhost:${port}/health`);
+      console.log('=====================');
     });
+    
   } catch (error) {
-    console.error('Failed to initialize application:', error);
+    console.error('=== Initialization Failed ===');
+    console.error('Error:', error instanceof Error ? error.message : error);
+    console.error('Stack:', error instanceof Error ? error.stack : 'No stack trace');
+    console.error('===========================');
     process.exit(1);
   }
 }
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  await redis.quit();
-  await prisma.$disconnect();
+  console.log('SIGTERM received, shutting down gracefully...');
+  try {
+    await redis.quit();
+    await prisma.$disconnect();
+  } catch (error) {
+    console.error('Error during shutdown:', error);
+  }
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  console.log('SIGINT received, shutting down gracefully');
-  await redis.quit();
-  await prisma.$disconnect();
+  console.log('SIGINT received, shutting down gracefully...');
+  try {
+    await redis.quit();
+    await prisma.$disconnect();
+  } catch (error) {
+    console.error('Error during shutdown:', error);
+  }
   process.exit(0);
 });
 
+// Start the application
+console.log('=== Initializing Application ===');
 initialize().catch((error) => {
-  console.error('Application initialization failed:', error);
+  console.error('Fatal initialization error:', error);
   process.exit(1);
 });
