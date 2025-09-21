@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { AuthController } from '../controllers/auth.controller';
 import { validateRegister, validateLogin, validateVerify, validateForgotPassword } from '../middleware/validation/auth.validation';
 import { Redis } from 'ioredis';
+import { redisConfig } from '../config/redis.config';
 import { EmailService } from '../services/email.service';
 import { VerificationService } from '../services/verification.service';
 import { AuthService } from '../services/auth.service';
@@ -9,10 +10,7 @@ import { createRateLimitMiddleware } from '../middleware/ratelimit.middleware';
 
 const router = Router();
 
-const redis = new Redis({
-  host: process.env.REDIS_HOST || 'redis',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-});
+const redis = new Redis(redisConfig);
 
 const rateLimitMiddleware = createRateLimitMiddleware(redis);
 

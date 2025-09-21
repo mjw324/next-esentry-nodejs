@@ -3,6 +3,7 @@ import { MonitorController } from '../controllers/monitor.controller';
 import { validateCreateMonitor } from '../middleware/validation/monitor.validation';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { Redis } from 'ioredis';
+import { redisConfig } from '../config/redis.config';
 import { MonitorQueue } from '../queues/monitor.queue';
 import { RateLimitService } from '../services/ratelimit.service';
 import { MonitorService } from '../services/monitor.service';
@@ -14,10 +15,7 @@ import { createRateLimitMiddleware } from '../middleware/ratelimit.middleware';
 
 const router = Router();
 
-const redis = new Redis({
-  host: process.env.REDIS_HOST || 'redis',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-});
+const redis = new Redis(redisConfig);
 
 const rateLimitMiddleware = createRateLimitMiddleware(redis);
 const ebayAuthService = new EbayAuthService(redis);
