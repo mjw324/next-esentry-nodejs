@@ -15,7 +15,7 @@
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-ses": "^3.777.0",
-    "@mjw324/prisma-shared": "^1.0.15",
+    "@mjw324/prisma-shared": "^1.0.16",
     "@prisma/client": "^6.16.2",
     "axios": "^1.7.9",
     "bcryptjs": "^3.0.2",
