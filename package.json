@@ -7,8 +7,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "postinstall": "prisma generate",
-    "prisma:generate": "prisma generate"
+    "postinstall": "prisma generate --schema=node_modules/@mjw324/prisma-shared/prisma/schema.prisma",
+    "prisma:generate": "prisma generate --schema=node_modules/@mjw324/prisma-shared/prisma/schema.prisma"
   },
   "keywords": [],
   "author": "",
