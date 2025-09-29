@@ -307,7 +307,7 @@ export class EmailService {
 
   async sendPasswordResetEmail(
     to: string,
-    token: string
+    token: string | null
   ): Promise<void> {
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${token}`;
 
