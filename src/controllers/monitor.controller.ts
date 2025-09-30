@@ -30,11 +30,22 @@ export class MonitorController {
         return;
       }
   
-      // Check if user has an active alert email
-      if (user.alertEmails.length === 0) {
-        res.status(400).json({ 
-          error: 'No active email found', 
-          message: 'You need to set up an active alert email before creating a monitor',
+      // If no active alert email but user email is verified, create one automatically
+      if (user.alertEmails.length === 0 && user.emailVerified && user.email) {
+        await prisma.alertEmail.create({
+          data: {
+            userId,
+            email: user.email,
+            status: 'active'
+          }
+        });
+      }
+
+      // Check if user has an active alert email OR a verified account email
+      if (user.alertEmails.length === 0 && !user.emailVerified) {
+        res.status(400).json({
+          error: 'No active email found',
+          message: 'You need to verify your email or set up an active alert email before creating a monitor',
         });
         return;
       }

@@ -87,13 +87,24 @@ export class MonitorService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Check if the user has at least one active email
-    const activeEmail = await prisma.alertEmail.findFirst({
+    // Check if the user has at least one active alert email
+    let activeEmail = await prisma.alertEmail.findFirst({
       where: {
         userId,
         status: 'active'
       }
     });
+
+    // If no active alert email but user email is verified, create one automatically
+    if (!activeEmail && user.emailVerified && user.email) {
+      activeEmail = await prisma.alertEmail.create({
+        data: {
+          userId,
+          email: user.email,
+          status: 'active'
+        }
+      });
+    }
 
     const hasActiveEmail = !!activeEmail;
 
