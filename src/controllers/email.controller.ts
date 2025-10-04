@@ -78,7 +78,8 @@ export class EmailController {
       // Check if email already exists for this user
       const existingEmail = await prisma.alertEmail.findFirst({
         where: {
-          userId
+          userId,
+          email
         }
       });
 
