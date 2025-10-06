@@ -11,11 +11,116 @@ export class EmailService {
       region: 'us-east-1',
       credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || ''
-      }
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+      },
     });
   }
 
+  async sendVerificationEmail(
+    to: string,
+    verificationToken: string,
+    verificationPin: string
+  ): Promise<void> {
+    const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${verificationToken}`;
+
+    await this.ses.sendEmail({
+      Source: `"${emailConfig.from.name}" <${emailConfig.from.address}>`,
+
+      Destination: {
+        ToAddresses: [to],
+      },
+
+      Message: {
+        Subject: {
+          Data: `Confirmation Code for eSentry: ${verificationPin}`,
+        },
+        Body: {
+          Html: {
+            Data: `
+              <!DOCTYPE html>
+              <html>
+              <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Email Verification</title>
+                <style>
+                  .body {
+                    font-family: Arial, sans-serif;
+                    line-height: 1.6;
+                    color: #333;
+                    max-width: 600px;
+                    margin: 0 auto;
+                    padding: 20px;
+                  }
+                  h1 {
+                    font-size: 32px;
+                    color:rgb(5, 0, 56);
+                    margin-bottom: 15px;
+                  }
+                  .instructions {
+                    color:rgb(117, 115, 147);
+                    font-size: 16px;
+                    margin-bottom: 25px;
+                  }
+                  .code-container {
+                    background-color: #f5f5f7;
+                    padding: 30px;
+                    text-align: center;
+                    margin-bottom: 25px;
+                  }
+                  .verification-code {
+                    font-size: 40px;
+                    font-weight: bold;
+                    color:rgb(5, 0, 56);
+                    letter-spacing: 2px;
+                  }
+                  .button-instruction {
+                    color: rgb(109, 106, 139);
+                    font-weight: 600;
+                    margin-bottom: 15px;
+                  }
+                  .confirm-button {
+                    display: inline-block;
+                    background-color: #d8e7ff;
+                    color: color:rgb(5, 0, 56);
+                    text-decoration: none;
+                    padding: 15px 30px;
+                    border-radius: 4px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    margin-bottom: 30px;
+                  }
+                  .footer-note {
+                    color: rgb(117, 115, 147);
+                    font-size: 14px;
+                  }
+                </style>
+              </head>
+              <body>
+                <div class="body">
+                  <h1>Complete verification</h1>
+                  <p class="instructions">
+                    Please enter this confirmation code in eSentry:
+                  </p>
+                  <div class="code-container">
+                    <div class="verification-code">${verificationPin}</div>
+                  </div>
+                  <p class="button-instruction">
+                    Or click this button to confirm your email:
+                  </p>
+                  <a href="${verificationUrl}" class="confirm-button">Confirm your email</a>
+                  <p class="footer-note">
+                    If you didn't create an account in eSentry, please ignore this message.
+                  </p>
+                </div>
+              </body>
+              </html>
+            `,
+          },
+        },
+      },
+    });
+  }
 
   async sendNewItemsNotification(
     to: string,
@@ -26,15 +131,21 @@ export class EmailService {
     const monitorUrl = `${process.env.FRONTEND_URL}/monitors/${monitorId}`;
 
     // Build item cards (responsive, larger images)
-    const itemsHtml = newItems.map((item, i) => {
-      const itemUrl = (item as any).itemUrl ?? (item as any).itemWebUrl ?? '#';
-      const imgUrl = item.image?.imageUrl ?? '';
-      const titleSafe = item.title ?? 'Untitled item';
-      const price = item.price ? `${item.price.value} ${item.price.currency}` : 'Price unavailable';
-      const condition = item.condition ? item.condition : '';
-      const seller = item.seller ? `${item.seller.username} (${item.seller.feedbackScore ?? '–'})` : 'Seller info unavailable';
+    const itemsHtml = newItems
+      .map((item, i) => {
+        const itemUrl =
+          (item as any).itemUrl ?? (item as any).itemWebUrl ?? '#';
+        const imgUrl = item.image?.imageUrl ?? '';
+        const titleSafe = item.title ?? 'Untitled item';
+        const price = item.price
+          ? `${item.price.value} ${item.price.currency}`
+          : 'Price unavailable';
+        const condition = item.condition ? item.condition : '';
+        const seller = item.seller
+          ? `${item.seller.username} (${item.seller.feedbackScore ?? '–'})`
+          : 'Seller info unavailable';
 
-      return `
+        return `
 <tr class="item-card" style="border-bottom:1px solid #e6e9ee;">
   <td style="padding:16px;">
     <!-- Container with two-column layout on desktop, stacked on mobile -->
@@ -43,18 +154,22 @@ export class EmailService {
         <!-- Image column -->
         <td valign="top" style="width:200px; max-width:200px; padding-right:12px;">
           <a href="${itemUrl}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">
-            ${imgUrl ? `
+            ${
+              imgUrl
+                ? `
               <img
                 src="${imgUrl}"
                 alt="${escapeHtml(titleSafe)}"
                 class="item-image"
                 style="display:block; width:100%; max-width:200px; height:auto; border-radius:8px; object-fit:cover;"
               />
-            ` : `
+            `
+                : `
               <div style="display:flex; align-items:center; justify-content:center; width:100%; max-width:200px; height:140px; background:#f5f7fa; color:#8b95a6; border-radius:8px; font-size:14px;">
                 No image
               </div>
-            `}
+            `
+            }
           </a>
         </td>
 
@@ -88,7 +203,8 @@ export class EmailService {
   </td>
 </tr>
       `;
-    }).join('\n');
+      })
+      .join('\n');
 
     // Main HTML template (responsive)
     const htmlContent = `
@@ -171,18 +287,17 @@ export class EmailService {
       ...newItems.map((item) => {
         const itemUrl = (item as any).itemUrl ?? (item as any).itemWebUrl ?? '';
         const title = item.title ?? 'Untitled item';
-        const price = item.price ? `${item.price.value} ${item.price.currency}` : 'Price unavailable';
+        const price = item.price
+          ? `${item.price.value} ${item.price.currency}`
+          : 'Price unavailable';
         const condition = item.condition ? `Condition: ${item.condition}` : '';
-        const seller = item.seller ? `Seller: ${item.seller.username} (${item.seller.feedbackScore ?? '–'})` : '';
-        return [
-          title,
-          price,
-          condition,
-          seller,
-          itemUrl || '',
-          '---'
-        ].filter(Boolean).join('\n');
-      })
+        const seller = item.seller
+          ? `Seller: ${item.seller.username} (${item.seller.feedbackScore ?? '–'})`
+          : '';
+        return [title, price, condition, seller, itemUrl || '', '---']
+          .filter(Boolean)
+          .join('\n');
+      }),
     ];
 
     const textContent = textLines.join('\n');
@@ -195,16 +310,13 @@ export class EmailService {
         Subject: { Data: `eSentry - New items found for "${monitorTitle}"` },
         Body: {
           Html: { Data: htmlContent },
-          Text: { Data: textContent }
-        }
-      }
+          Text: { Data: textContent },
+        },
+      },
     });
   }
 
-  async sendAccountVerificationEmail(
-    to: string,
-    token: string
-  ): Promise<void> {
+  async sendAccountVerificationEmail(to: string, token: string): Promise<void> {
     const verificationUrl = `${process.env.FRONTEND_URL}/verify-account/${token}`;
 
     const htmlContent = `
@@ -288,18 +400,18 @@ export class EmailService {
     await this.ses.sendEmail({
       Source: `"${emailConfig.from.name}" <${emailConfig.from.address}>`,
       Destination: {
-        ToAddresses: [to]
+        ToAddresses: [to],
       },
       Message: {
         Subject: {
-          Data: 'Verify Your eSentry Account'
+          Data: 'Verify Your eSentry Account',
         },
         Body: {
           Html: {
-            Data: htmlContent
-          }
-        }
-      }
+            Data: htmlContent,
+          },
+        },
+      },
     });
   }
 
@@ -390,18 +502,18 @@ export class EmailService {
     await this.ses.sendEmail({
       Source: `"${emailConfig.from.name}" <${emailConfig.from.address}>`,
       Destination: {
-        ToAddresses: [to]
+        ToAddresses: [to],
       },
       Message: {
         Subject: {
-          Data: 'Reset Your eSentry Password'
+          Data: 'Reset Your eSentry Password',
         },
         Body: {
           Html: {
-            Data: htmlContent
-          }
-        }
-      }
+            Data: htmlContent,
+          },
+        },
+      },
     });
   }
 }
@@ -418,4 +530,3 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
-
