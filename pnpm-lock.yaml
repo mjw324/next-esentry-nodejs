@@ -12,8 +12,8 @@ importers:
         specifier: ^3.777.0
         version: 3.777.0
       '@mjw324/prisma-shared':
-        specifier: ^1.1.0
-        version: 1.1.0(prisma@6.16.2(typescript@5.7.3))(typescript@5.7.3)
+        specifier: ^1.1.1
+        version: 1.1.1(prisma@6.16.2(typescript@5.7.3))(typescript@5.7.3)
       '@prisma/client':
         specifier: ^6.16.2
         version: 6.16.2(prisma@6.16.2(typescript@5.7.3))(typescript@5.7.3)
@@ -278,8 +278,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
 
-  '@mjw324/prisma-shared@1.1.0':
-    resolution: {integrity: sha512-FA9wGGutbKKUdJGfZ1te2fFjSaWt1/ZQEBoXwy3MLKk8tHOmbH0F2qMB6Tm7RRlOnHiZgAC5cdOBb5FF7rQ09g==}
+  '@mjw324/prisma-shared@1.1.1':
+    resolution: {integrity: sha512-ZLzIWrAJbujsgctJz2hU4WmIaCXF3Wju9BK7bvQoHjkgsJqd1LxxUHO4c9ba4+nt+hK+YaDhtk558Ltafdrh5Q==}
 
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.3':
     resolution: {integrity: sha512-QZHtlVgbAdy2zAqNA9Gu1UpIuI8Xvsd1v8ic6B2pZmeFnFcMWiPLfWXh7TVw4eGEZ/C9TH281KwhVoeQUKbyjw==}
@@ -2246,7 +2246,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.0
 
-  '@mjw324/prisma-shared@1.1.0(prisma@6.16.2(typescript@5.7.3))(typescript@5.7.3)':
+  '@mjw324/prisma-shared@1.1.1(prisma@6.16.2(typescript@5.7.3))(typescript@5.7.3)':
     dependencies:
       '@prisma/client': 6.16.2(prisma@6.16.2(typescript@5.7.3))(typescript@5.7.3)
       '@prisma/extension-accelerate': 2.0.2(@prisma/client@6.16.2(prisma@6.16.2(typescript@5.7.3))(typescript@5.7.3))
