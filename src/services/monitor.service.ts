@@ -44,6 +44,7 @@ export class MonitorService {
         maxPrice: data.maxPrice,
         conditions: data.conditions || [],
         sellers: data.sellers || [],
+        interval: data.interval,
         status: 'inactive',
       },
     });
@@ -59,6 +60,7 @@ export class MonitorService {
       conditions: monitor.conditions,
       sellers: monitor.sellers,
       status: monitor.status,
+      interval: monitor.interval,
       nextCheckAt: monitor.nextCheckAt,
       lastCheckTime: monitor.lastCheckTime,
       lastResultCount: monitor.lastResultCount,
@@ -120,6 +122,7 @@ export class MonitorService {
         conditions: monitor.conditions,
         sellers: monitor.sellers,
         status: monitor.status,
+        interval: monitor.interval,
         nextCheckAt: monitor.nextCheckAt,
         lastCheckTime: monitor.lastCheckTime,
         lastResultCount: monitor.lastResultCount,
@@ -157,6 +160,7 @@ export class MonitorService {
         conditions: monitor.conditions,
         sellers: monitor.sellers,
         status: monitor.status,
+        interval: monitor.interval,
         nextCheckAt: monitor.nextCheckAt,
         lastCheckTime: monitor.lastCheckTime,
         lastResultCount: monitor.lastResultCount,
@@ -195,7 +199,7 @@ export class MonitorService {
 
     // If activating, add the job scheduler after the monitor is updated
     if (active) {
-      await this.monitorQueue.addMonitorJob(monitorId);
+      await this.monitorQueue.addMonitorJob(monitorId, updatedMonitor.interval);
     }
 
     // Return the updated monitor
@@ -209,6 +213,7 @@ export class MonitorService {
       conditions: updatedMonitor.conditions,
       sellers: updatedMonitor.sellers,
       status: updatedMonitor.status,
+      interval: updatedMonitor.interval,
       nextCheckAt: updatedMonitor.nextCheckAt,
       lastCheckTime: updatedMonitor.lastCheckTime,
       lastResultCount: updatedMonitor.lastResultCount,
@@ -259,13 +264,23 @@ export class MonitorService {
     if (updates.maxPrice !== undefined) updateData.maxPrice = updates.maxPrice;
     if (updates.conditions !== undefined) updateData.conditions = updates.conditions;
     if (updates.sellers !== undefined) updateData.sellers = updates.sellers;
+    if (updates.interval !== undefined) {
+      updateData.interval = updates.interval;
+      // If monitor is active and interval is being changed, update the job scheduler
+      if (monitor.status === 'active') {
+        await this.monitorQueue.removeMonitorJob(monitorId);
+        await this.monitorQueue.addMonitorJob(monitorId, updates.interval);
+      }
+    }
     if (updates.status !== undefined) {
       updateData.status = updates.status;
 
       if (updates.status === 'active') {
         updateData.nextCheckAt = new Date();
         await this.monitorQueue.removeMonitorJob(monitorId);
-        await this.monitorQueue.addMonitorJob(monitorId);
+        // Get the updated monitor to access the interval
+        const currentMonitor = await prisma.monitor.findUnique({ where: { id: monitorId } });
+        await this.monitorQueue.addMonitorJob(monitorId, currentMonitor?.interval || updates.interval);
       } else {
         await this.monitorQueue.removeMonitorJob(monitorId);
       }
@@ -289,6 +304,7 @@ export class MonitorService {
       conditions: updatedMonitor.conditions,
       sellers: updatedMonitor.sellers,
       status: updatedMonitor.status,
+      interval: updatedMonitor.interval,
       nextCheckAt: updatedMonitor.nextCheckAt,
       lastCheckTime: updatedMonitor.lastCheckTime,
       lastResultCount: updatedMonitor.lastResultCount,

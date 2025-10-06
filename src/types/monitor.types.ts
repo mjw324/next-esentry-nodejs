@@ -7,6 +7,7 @@ export const createMonitorSchema = z.object({
   maxPrice: z.number().min(0).optional(),
   conditions: z.array(z.enum(['NEW', 'USED'])).optional(),
   sellers: z.array(z.string()).optional(),
+  interval: z.number().min(60000).optional(), // Minimum 1 minute in milliseconds
   useLoginEmail: z.boolean().optional(),
   customEmail: z.string().email().optional()
 });
@@ -23,6 +24,7 @@ export interface MonitorResponse {
   conditions: string[];
   sellers: string[];
   status: 'active' | 'inactive';
+  interval: number;
   nextCheckAt?: Date;
   lastCheckTime?: Date;
   lastResultCount: number;

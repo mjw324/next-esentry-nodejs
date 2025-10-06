@@ -15,21 +15,21 @@ export class MonitorQueue {
           type: 'exponential',
           delay: 1000,
         },
-      }
+      },
     });
   }
 
   async addMonitorJob(
-    monitorId: string, 
-    interval: number = parseInt(process.env.MONITOR_INTERVAL || '7200000'),
+    monitorId: string,
+    interval: number = parseInt(process.env.MONITOR_INTERVAL || '7200000')
   ) {
     try {
       // First ensure no existing jobs are running for this monitor
       await this.removeMonitorJob(monitorId);
-  
+
       // Create a scheduler ID that's consistent and unique for this monitor
       const schedulerId = `monitor:${monitorId}`;
-  
+
       // Use upsertJobScheduler to create or update the job scheduler
       const firstJob = await this.queue.upsertJobScheduler(
         schedulerId,
@@ -45,18 +45,20 @@ export class MonitorQueue {
               type: 'exponential',
               delay: 1000,
             },
-          }
+          },
         }
       );
-  
+
       console.log(`Job scheduler created/updated for monitor: ${monitorId}`);
       return firstJob;
     } catch (error) {
-      console.error(`Error creating job scheduler for monitor ${monitorId}:`, error);
+      console.error(
+        `Error creating job scheduler for monitor ${monitorId}:`,
+        error
+      );
       throw error;
     }
   }
-  
 
   async removeMonitorJob(monitorId: string) {
     try {
@@ -65,7 +67,9 @@ export class MonitorQueue {
 
       const removed = await this.queue.removeJobScheduler(schedulerId);
 
-      console.log(`Job scheduler removal attempt for ${schedulerId}: ${removed ? 'Successful' : 'Not found'}`);
+      console.log(
+        `Job scheduler removal attempt for ${schedulerId}: ${removed ? 'Successful' : 'Not found'}`
+      );
 
       if (removed) {
         console.log(`Job scheduler removed for monitor: ${monitorId}`);
@@ -73,9 +77,16 @@ export class MonitorQueue {
         console.log(`No job scheduler found for monitor: ${monitorId}`);
       }
 
-      const pendingJobs = await this.queue.getJobs(['waiting', 'active', 'delayed']);
+      const pendingJobs = await this.queue.getJobs([
+        'waiting',
+        'active',
+        'delayed',
+      ]);
       for (const job of pendingJobs) {
-        if (job.name === schedulerId || (job.data && job.data.monitorId === monitorId)) {
+        if (
+          job.name === schedulerId ||
+          (job.data && job.data.monitorId === monitorId)
+        ) {
           await job.remove();
           console.log(`Removed pending job for monitor: ${monitorId}`);
         }
@@ -86,7 +97,10 @@ export class MonitorQueue {
 
       return removed;
     } catch (error) {
-      console.error(`Error removing job scheduler for monitor ${monitorId}:`, error);
+      console.error(
+        `Error removing job scheduler for monitor ${monitorId}:`,
+        error
+      );
       throw error;
     }
   }
