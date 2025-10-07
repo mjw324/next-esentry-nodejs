@@ -43,7 +43,8 @@ export class MonitorWorker {
     });
 
     if (!monitor) {
-      throw new Error('Monitor not found');
+      console.log(`Monitor ${monitorId} not found in database, likely deleted. Skipping job.`);
+      return; // Gracefully skip processing for deleted monitors
     }
 
     // Check if monitor is still active before processing
