@@ -11,6 +11,36 @@ export class MonitorService {
   ) {}
 
   /**
+   * Initialize job schedulers for all active monitors
+   * This should be called on application startup
+   */
+  async initializeActiveMonitors() {
+    try {
+      console.log('Initializing job schedulers for active monitors...');
+
+      const activeMonitors = await prisma.monitor.findMany({
+        where: { status: 'active' },
+        select: { id: true, interval: true }
+      });
+
+      console.log(`Found ${activeMonitors.length} active monitors to initialize`);
+
+      for (const monitor of activeMonitors) {
+        try {
+          await this.monitorQueue.addMonitorJob(monitor.id, monitor.interval);
+          console.log(`Initialized job scheduler for monitor: ${monitor.id} (interval: ${monitor.interval}ms)`);
+        } catch (error) {
+          console.error(`Failed to initialize job scheduler for monitor ${monitor.id}:`, error);
+        }
+      }
+
+      console.log('Monitor initialization complete');
+    } catch (error) {
+      console.error('Error during monitor initialization:', error);
+    }
+  }
+
+  /**
    * Create a new monitor for a user
    * @param userId The ID of the user creating the monitor
    * @param data The monitor data

@@ -16,6 +16,8 @@ import { NotificationService } from './services/notification.service';
 import { EmailService } from './services/email.service';
 import { ComparisonService } from './services/comparison.service';
 import { MonitorWorker } from './workers/monitor.worker';
+import { MonitorService } from './services/monitor.service';
+import { MonitorQueue } from './queues/monitor.queue';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -151,13 +153,18 @@ async function initialize() {
     const emailService = new EmailService();
     const notificationService = new NotificationService(rateLimitService, emailService);
     const comparisonService = new ComparisonService(notificationService, emailService);
-    
+
     // Initialize worker
     const monitorWorker = new MonitorWorker(
       ebayService,
       cacheService,
       comparisonService
     );
+
+    // Initialize monitor service and queue
+    const monitorQueue = new MonitorQueue(redis);
+    const monitorService = new MonitorService(rateLimitService, monitorQueue);
+
     console.log('All services initialized');
     
     // Configure CORS
@@ -259,7 +266,10 @@ async function initialize() {
     });
    
     app.use(errorHandler);
-   
+
+    // Initialize active monitors before starting the server
+    await monitorService.initializeActiveMonitors();
+
     app.listen(port, () => {
       console.log('=== Server Started ===');
       console.log(`Listening on port ${port}`);
