@@ -22,7 +22,7 @@ export class RateLimitService {
     }
 
     if (activeMonitorsCount >= user.maxActiveMonitors) {
-      throw new RateLimitError('Maximum number of active monitors reached');
+      throw new RateLimitError(`You have reached the maximum limit of ${user.maxActiveMonitors} active monitors. Please deactivate or delete an existing monitor before creating a new one.`);
     }
   }
 
