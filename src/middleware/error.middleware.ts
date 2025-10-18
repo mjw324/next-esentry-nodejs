@@ -6,31 +6,34 @@ export const errorHandler = (
   req: Request,
   res: Response,
   next: NextFunction
-) => {
+): void => {
   console.error(error);
 
   // Handle RateLimitError
   if (error instanceof RateLimitError) {
-    return res.status(429).json({
+    res.status(429).json({
       error: 'Rate limit exceeded',
       message: error.message
     });
+    return;
   }
 
   // Handle ValidationError
   if (error instanceof ValidationError) {
-    return res.status(400).json({
+    res.status(400).json({
       error: 'Validation error',
       message: error.message
     });
+    return;
   }
 
   // Handle other known errors
   if (error.name === 'ValidationError') {
-    return res.status(400).json({
+    res.status(400).json({
       error: 'Validation error',
       message: error.message
     });
+    return;
   }
 
   // Default to 500 for unknown errors
