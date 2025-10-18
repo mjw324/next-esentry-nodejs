@@ -1,8 +1,7 @@
 import { prisma } from '../lib/prisma';
-import { CreateMonitorDTO } from '../types/monitor.types';
+import { CreateMonitorDTO, MonitorResponse } from '../types/monitor.types';
 import { RateLimitService } from './ratelimit.service';
 import { MonitorQueue } from '../queues/monitor.queue';
-import { Monitor } from '@prisma/client';
 
 export class MonitorService {
   constructor(
@@ -142,19 +141,19 @@ export class MonitorService {
 
     // Return both monitors and hasActiveEmail flag
     return {
-      monitors: monitors.map((monitor: Monitor) => ({
+      monitors: monitors.map((monitor: any): MonitorResponse => ({
         id: monitor.id,
         userId: monitor.userId,
         keywords: monitor.keywords,
         excludedKeywords: monitor.excludedKeywords,
-        minPrice: monitor.minPrice,
-        maxPrice: monitor.maxPrice,
+        minPrice: monitor.minPrice ?? undefined,
+        maxPrice: monitor.maxPrice ?? undefined,
         conditions: monitor.conditions,
         sellers: monitor.sellers,
         status: monitor.status,
         interval: monitor.interval,
-        nextCheckAt: monitor.nextCheckAt,
-        lastCheckTime: monitor.lastCheckTime,
+        nextCheckAt: monitor.nextCheckAt ?? undefined,
+        lastCheckTime: monitor.lastCheckTime ?? undefined,
         lastResultCount: monitor.lastResultCount,
       })),
       hasActiveEmail
