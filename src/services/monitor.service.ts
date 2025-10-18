@@ -3,6 +3,7 @@ import { CreateMonitorDTO, MonitorResponse } from '../types/monitor.types';
 import { RateLimitService } from './ratelimit.service';
 import { MonitorQueue } from '../queues/monitor.queue';
 import { CacheService } from './cache.service';
+import { RateLimitError } from '../utils/errors';
 
 export class MonitorService {
   constructor(
@@ -210,7 +211,7 @@ export class MonitorService {
       });
 
       if (activeMonitorsCount >= monitor.user.maxActiveMonitors) {
-        throw new Error('Maximum number of active monitors reached');
+        throw new RateLimitError(`You have reached the maximum limit of ${monitor.user.maxActiveMonitors} active monitors. Please deactivate or delete an existing monitor before activating this one.`);
       }
     }
 
@@ -284,7 +285,7 @@ export class MonitorService {
       });
 
       if (activeMonitorsCount >= monitor.user.maxActiveMonitors) {
-        throw new Error('Maximum number of active monitors reached');
+        throw new RateLimitError(`You have reached the maximum limit of ${monitor.user.maxActiveMonitors} active monitors. Please deactivate or delete an existing monitor before activating this one.`);
       }
     }
 
