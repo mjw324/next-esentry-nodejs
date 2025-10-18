@@ -2,11 +2,13 @@ import { prisma } from '../lib/prisma';
 import { CreateMonitorDTO, MonitorResponse } from '../types/monitor.types';
 import { RateLimitService } from './ratelimit.service';
 import { MonitorQueue } from '../queues/monitor.queue';
+import { CacheService } from './cache.service';
 
 export class MonitorService {
   constructor(
     private rateLimitService: RateLimitService,
-    private monitorQueue: MonitorQueue
+    private monitorQueue: MonitorQueue,
+    private cacheService: CacheService
   ) {}
 
   /**
@@ -211,10 +213,11 @@ export class MonitorService {
       }
     }
 
-    // If deactivating, make sure we remove all jobs first
+    // If deactivating, make sure we remove all jobs and clear cache first
     if (!active) {
-      console.log("removing monitor job")
+      console.log("removing monitor job and clearing cache")
       await this.monitorQueue.removeMonitorJob(monitorId);
+      await this.cacheService.clearResults(monitorId);
     }
 
     // Update monitor status
@@ -312,6 +315,7 @@ export class MonitorService {
         await this.monitorQueue.addMonitorJob(monitorId, currentMonitor?.interval || updates.interval);
       } else {
         await this.monitorQueue.removeMonitorJob(monitorId);
+        await this.cacheService.clearResults(monitorId);
       }
     }
 
@@ -358,6 +362,7 @@ export class MonitorService {
     }
     
     await this.monitorQueue.removeMonitorJob(monitorId);
+    await this.cacheService.clearResults(monitorId);
 
     // Delete the monitor
     await prisma.monitor.delete({
