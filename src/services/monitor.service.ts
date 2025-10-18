@@ -28,6 +28,7 @@ export class MonitorService {
 
       for (const monitor of activeMonitors) {
         try {
+          await this.cacheService.clearResults(monitor.id);
           await this.monitorQueue.addMonitorJob(monitor.id, monitor.interval);
           console.log(`Initialized job scheduler for monitor: ${monitor.id} (interval: ${monitor.interval}ms)`);
         } catch (error) {
