@@ -163,7 +163,7 @@ async function initialize() {
 
     // Initialize monitor service and queue
     const monitorQueue = new MonitorQueue(redis);
-    const monitorService = new MonitorService(rateLimitService, monitorQueue);
+    const monitorService = new MonitorService(rateLimitService, monitorQueue, cacheService);
 
     console.log('All services initialized');
     

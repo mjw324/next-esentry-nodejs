@@ -11,6 +11,7 @@ import { EbayAuthService } from '../services/ebay-auth.service';
 import { EbayService } from '../services/ebay.service';
 import { EmailService } from '../services/email.service';
 import { VerificationService } from '../services/verification.service';
+import { CacheService } from '../services/cache.service';
 import { createRateLimitMiddleware } from '../middleware/ratelimit.middleware';
 
 const router = Router();
@@ -22,7 +23,8 @@ const ebayAuthService = new EbayAuthService(redis);
 const ebayService = new EbayService(ebayAuthService);
 const monitorQueue = new MonitorQueue(redis);
 const rateLimitService = new RateLimitService(redis);
-const monitorService = new MonitorService(rateLimitService, monitorQueue);
+const cacheService = new CacheService(redis);
+const monitorService = new MonitorService(rateLimitService, monitorQueue, cacheService);
 const emailService = new EmailService();
 const verificationService = new VerificationService();
 const monitorController = new MonitorController(monitorService, emailService, verificationService);
