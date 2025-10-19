@@ -353,7 +353,7 @@ export class MonitorService {
   async deleteMonitor(monitorId: string, userId: string) {
     // Verify the monitor exists and belongs to the user
     const monitor = await prisma.monitor.findFirst({
-      where: { 
+      where: {
         id: monitorId,
         userId
       }
@@ -362,7 +362,7 @@ export class MonitorService {
     if (!monitor) {
       throw new Error('Monitor not found');
     }
-    
+
     await this.monitorQueue.removeMonitorJob(monitorId);
     await this.cacheService.clearResults(monitorId);
 
@@ -370,5 +370,62 @@ export class MonitorService {
     await prisma.monitor.delete({
       where: { id: monitorId }
     });
+  }
+
+  /**
+   * Unsubscribe from monitor notifications via email link
+   * @param monitorId The ID of the monitor to deactivate
+   * @param email The email address of the user unsubscribing
+   * @returns Success message or throws error
+   */
+  async unsubscribeFromMonitor(monitorId: string, email: string): Promise<{ success: boolean; message: string }> {
+    // Find the monitor and verify it exists
+    const monitor = await prisma.monitor.findUnique({
+      where: { id: monitorId },
+      include: {
+        user: {
+          include: {
+            alertEmails: {
+              where: {
+                email: email,
+                status: 'active'
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!monitor) {
+      return { success: false, message: 'Monitor not found' };
+    }
+
+    // Check if the email is associated with the user who owns this monitor
+    const hasMatchingEmail = monitor.user.alertEmails.some(alertEmail =>
+      alertEmail.email === email && alertEmail.status === 'active'
+    );
+
+    if (!hasMatchingEmail) {
+      return { success: false, message: 'Email not authorized for this monitor' };
+    }
+
+    // Only deactivate if the monitor is currently active
+    if (monitor.status === 'inactive') {
+      return { success: true, message: 'Monitor was already inactive' };
+    }
+
+    // Deactivate the monitor
+    await this.monitorQueue.removeMonitorJob(monitorId);
+    await this.cacheService.clearResults(monitorId);
+
+    await prisma.monitor.update({
+      where: { id: monitorId },
+      data: {
+        status: 'inactive',
+        nextCheckAt: null,
+      },
+    });
+
+    return { success: true, message: 'Successfully unsubscribed from monitor notifications' };
   }
 }

@@ -2,14 +2,19 @@ import { Request, Response, NextFunction } from 'express';
 import { MonitorService } from '../services/monitor.service';
 import { EmailService } from '../services/email.service';
 import { VerificationService } from '../services/verification.service';
+import { UnsubscribeTokenService } from '../utils/unsubscribe';
 import { prisma } from '../lib/prisma';
 
 export class MonitorController {
+  private unsubscribeService: UnsubscribeTokenService;
+
   constructor(
     private monitorService: MonitorService,
     private emailService: EmailService,
     private verificationService: VerificationService,
-  ) {}
+  ) {
+    this.unsubscribeService = new UnsubscribeTokenService();
+  }
 
   async createMonitor(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -129,11 +134,40 @@ export class MonitorController {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-  
+
       // Delete the monitor
       const deletedMonitor = await this.monitorService.deleteMonitor(id, userId);
-  
+
       res.status(200).json(deletedMonitor);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async unsubscribeFromMonitor(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { token } = req.params;
+
+      // Verify and decode the token
+      const tokenData = this.unsubscribeService.verifyToken(token);
+      if (!tokenData) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid or expired unsubscribe link'
+        });
+      }
+
+      // Unsubscribe from the monitor
+      const result = await this.monitorService.unsubscribeFromMonitor(
+        tokenData.monitorId,
+        tokenData.email
+      );
+
+      if (result.success) {
+        res.status(200).json(result);
+      } else {
+        res.status(400).json(result);
+      }
     } catch (error) {
       next(error);
     }
