@@ -84,7 +84,7 @@ export class UnsubscribeTokenService {
    */
   generateUnsubscribeUrl(monitorId: string, email: string): string {
     const token = this.generateToken(monitorId, email);
-    const baseUrl = process.env.FRONTEND_URL || process.env.API_URL || 'http://localhost:3000';
-    return `${baseUrl}/api/unsubscribe/${token}`;
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    return `${baseUrl}/unsubscribe/${token}`;
   }
 }
