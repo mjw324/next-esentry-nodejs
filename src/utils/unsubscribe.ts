@@ -33,7 +33,15 @@ export class UnsubscribeTokenService {
    */
   verifyToken(token: string): UnsubscribeToken | null {
     try {
-      const [payload, providedSignature] = token.split('.');
+      // Split only on the last dot to separate payload from signature
+      const lastDotIndex = token.lastIndexOf('.');
+      if (lastDotIndex === -1) {
+        return null;
+      }
+
+      const payload = token.substring(0, lastDotIndex);
+      const providedSignature = token.substring(lastDotIndex + 1);
+
       if (!payload || !providedSignature) {
         return null;
       }
