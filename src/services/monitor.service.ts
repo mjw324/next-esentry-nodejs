@@ -20,6 +20,9 @@ export class MonitorService {
     try {
       console.log('Initializing job schedulers for active monitors...');
 
+      // First, clean up any orphaned job schedulers from deleted monitors
+      await this.cleanupOrphanedJobSchedulers();
+
       const activeMonitors = await prisma.monitor.findMany({
         where: { status: 'active' },
         select: { id: true, interval: true }
@@ -40,6 +43,56 @@ export class MonitorService {
       console.log('Monitor initialization complete');
     } catch (error) {
       console.error('Error during monitor initialization:', error);
+    }
+  }
+
+  /**
+   * Clean up job schedulers for monitors that no longer exist in the database
+   * This prevents orphaned schedulers from continuing to run jobs for deleted monitors
+   */
+  private async cleanupOrphanedJobSchedulers() {
+    try {
+      console.log('Cleaning up orphaned job schedulers...');
+
+      // Get all existing job schedulers from the queue
+      const schedulers = await this.monitorQueue.getJobSchedulers();
+
+      if (schedulers.length === 0) {
+        console.log('No job schedulers found to clean up');
+        return;
+      }
+
+      console.log(`Found ${schedulers.length} job schedulers to check`);
+
+      // Get all monitor IDs from the database
+      const existingMonitors = await prisma.monitor.findMany({
+        select: { id: true }
+      });
+      const existingMonitorIds = new Set(existingMonitors.map(m => m.id));
+
+      let cleanedCount = 0;
+
+      for (const scheduler of schedulers) {
+        // Extract monitor ID from scheduler name (format: "monitor:${monitorId}")
+        if (scheduler.name && scheduler.name.startsWith('monitor:')) {
+          const monitorId = scheduler.name.substring(8); // Remove "monitor:" prefix
+
+          // If this monitor doesn't exist in the database, remove its scheduler
+          if (!existingMonitorIds.has(monitorId)) {
+            try {
+              await this.monitorQueue.removeMonitorJob(monitorId);
+              cleanedCount++;
+              console.log(`Removed orphaned job scheduler for deleted monitor: ${monitorId}`);
+            } catch (error) {
+              console.error(`Failed to remove orphaned scheduler for monitor ${monitorId}:`, error);
+            }
+          }
+        }
+      }
+
+      console.log(`Cleanup complete. Removed ${cleanedCount} orphaned job schedulers`);
+    } catch (error) {
+      console.error('Error during job scheduler cleanup:', error);
     }
   }
 

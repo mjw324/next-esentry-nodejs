@@ -104,4 +104,19 @@ export class MonitorQueue {
       throw error;
     }
   }
+
+  /**
+   * Get all job schedulers from the queue
+   * Used for cleanup of orphaned schedulers
+   */
+  async getJobSchedulers() {
+    try {
+      // Get all schedulers with a reasonable limit
+      const schedulers = await this.queue.getJobSchedulers(0, 1000, true);
+      return schedulers;
+    } catch (error) {
+      console.error('Error getting job schedulers:', error);
+      return [];
+    }
+  }
 }

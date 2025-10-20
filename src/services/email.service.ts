@@ -132,7 +132,10 @@ export class EmailService {
     monitorId: string
   ): Promise<void> {
     const monitorUrl = `${process.env.FRONTEND_URL}/monitors/${monitorId}`;
-    const unsubscribeUrl = this.unsubscribeService.generateUnsubscribeUrl(monitorId, to);
+    const unsubscribeUrl = this.unsubscribeService.generateUnsubscribeUrl(
+      monitorId,
+      to
+    );
 
     // Build item cards (responsive, larger images)
     const itemsHtml = newItems
@@ -266,10 +269,7 @@ export class EmailService {
 
           <p style="margin:16px 0 0 0; font-size:13px; color:#6b7280;">
             You received this email because you set up notifications for eBay listings on eSentry.
-            <br/>
-            Manage notifications or edit this monitor: <a href="${monitorUrl}" target="_blank" rel="noopener noreferrer">${monitorUrl}</a>
-            <br/>
-            <a href="${unsubscribeUrl}" target="_blank" rel="noopener noreferrer" style="color:#9ca3af; text-decoration:underline;">Unsubscribe from this monitor</a>
+            <a href="${unsubscribeUrl}" target="_blank" rel="noopener noreferrer">Unsubscribe from this monitor</a>
           </p>
         </td>
       </tr>
@@ -306,7 +306,9 @@ export class EmailService {
       }),
     ];
 
-    const textContent = textLines.join('\n') + `\n\nUnsubscribe from this monitor: ${unsubscribeUrl}`;
+    const textContent =
+      textLines.join('\n') +
+      `\n\nUnsubscribe from this monitor: ${unsubscribeUrl}`;
 
     // Send email (Html + Text)
     await this.ses.sendEmail({
