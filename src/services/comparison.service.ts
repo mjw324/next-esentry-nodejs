@@ -14,7 +14,7 @@ export class ComparisonService {
         oldResults: TransformedEbayResults,
         newResults: TransformedEbayResults
     ): Promise<void> {
-        const newItems = this.findNewItems(oldResults.itemSummaries, newResults.itemSummaries);
+        const newItems = this.findNewItems(oldResults.itemSummaries || [], newResults.itemSummaries || []);
 
         if (newItems.length > 0) {
             console.log(`Found ${newItems.length} new items for monitor ${monitorId}: `, newItems);
@@ -29,6 +29,9 @@ export class ComparisonService {
     }
 
     private findNewItems(oldItems: EbayItem[], newItems: EbayItem[]): EbayItem[] {
+        if (!oldItems || !newItems) {
+            return newItems || [];
+        }
         const oldItemIds = new Set(oldItems.map(item => item.itemId));
         return newItems.filter(item => !oldItemIds.has(item.itemId));
     }

@@ -88,6 +88,21 @@ export class EmailController {
         return;
       }
 
+      // Check if email is already associated with another user account
+      const emailOwnedByOther = await prisma.alertEmail.findFirst({
+        where: {
+          email,
+          userId: {
+            not: userId
+          }
+        }
+      });
+
+      if (emailOwnedByOther) {
+        res.status(400).json({ error: 'This email address is already associated with another account' });
+        return;
+      }
+
       // Create verification for the new email
       const { token, pin } = await this.verificationService.createEmailVerification(
         userId,

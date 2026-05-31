@@ -22,7 +22,7 @@ export class RateLimitService {
     }
 
     if (activeMonitorsCount >= user.maxActiveMonitors) {
-      throw new RateLimitError('Maximum number of active monitors reached');
+      throw new RateLimitError(`You have reached the maximum limit of ${user.maxActiveMonitors} active monitors. Please deactivate or delete an existing monitor before creating a new one.`);
     }
   }
 
@@ -106,6 +106,35 @@ export class RateLimitService {
     const ttl = await this.redis.ttl(key);
     if (ttl < 0) {
       await this.redis.expire(key, 60 * 60); // 1 hour in seconds
+    }
+
+    return true;
+  }
+
+  /**
+   * Check monitor toggle rate limits for a user
+   * Prevents rapid switching of monitor status
+   */
+  async checkMonitorToggleLimit(userId: string): Promise<boolean> {
+    const maxToggles = 10; // 10 toggles per minute
+    const key = `monitor:toggle:${userId}:minute`;
+
+    // Get current count from Redis
+    const currentCount = await this.redis.get(key);
+    const count = currentCount ? parseInt(currentCount) : 0;
+
+    // If count exceeds limit, return false
+    if (count >= maxToggles) {
+      return false;
+    }
+
+    // Increment count and set expiry if needed
+    await this.redis.incr(key);
+
+    // Set TTL to 1 minute if not already set
+    const ttl = await this.redis.ttl(key);
+    if (ttl < 0) {
+      await this.redis.expire(key, 60); // 1 minute in seconds
     }
 
     return true;

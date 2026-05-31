@@ -2,9 +2,11 @@
 import { SES } from '@aws-sdk/client-ses';
 import { emailConfig } from '../config/email.config';
 import { EbayItem } from '../types/ebay.types';
+import { UnsubscribeTokenService } from '../utils/unsubscribe';
 
 export class EmailService {
   private ses: SES;
+  private unsubscribeService: UnsubscribeTokenService;
 
   constructor() {
     this.ses = new SES({
@@ -14,6 +16,7 @@ export class EmailService {
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
       },
     });
+    this.unsubscribeService = new UnsubscribeTokenService();
   }
 
   async sendVerificationEmail(
@@ -129,6 +132,10 @@ export class EmailService {
     monitorId: string
   ): Promise<void> {
     const monitorUrl = `${process.env.FRONTEND_URL}/monitors/${monitorId}`;
+    const unsubscribeUrl = this.unsubscribeService.generateUnsubscribeUrl(
+      monitorId,
+      to
+    );
 
     // Build item cards (responsive, larger images)
     const itemsHtml = newItems
@@ -239,7 +246,7 @@ export class EmailService {
   <!-- Hidden preheader: short summary shown in inbox preview -->
   <div class="preheader">We've found ${newItems.length} new item${newItems.length > 1 ? 's' : ''} for "${escapeHtml(monitorTitle)}"</div>
 
-  <center style="width:100%; padding:20px 12px;">
+  <center style="width:100%;">
     <table role="presentation" class="container" width="100%">
       <tr>
         <td class="header">
@@ -262,8 +269,7 @@ export class EmailService {
 
           <p style="margin:16px 0 0 0; font-size:13px; color:#6b7280;">
             You received this email because you set up notifications for eBay listings on eSentry.
-            <br/>
-            Manage notifications or edit this monitor: <a href="${monitorUrl}" target="_blank" rel="noopener noreferrer">${monitorUrl}</a>
+            <a href="${unsubscribeUrl}" target="_blank" rel="noopener noreferrer">Unsubscribe from this monitor</a>
           </p>
         </td>
       </tr>
@@ -300,7 +306,9 @@ export class EmailService {
       }),
     ];
 
-    const textContent = textLines.join('\n');
+    const textContent =
+      textLines.join('\n') +
+      `\n\nUnsubscribe from this monitor: ${unsubscribeUrl}`;
 
     // Send email (Html + Text)
     await this.ses.sendEmail({
