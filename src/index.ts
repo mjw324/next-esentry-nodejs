@@ -7,6 +7,7 @@ import { prisma } from './lib/prisma';
 import { RateLimitService } from './services/ratelimit.service';
 import ebayNotificationRoutes from './routes/ebay-notification.routes';
 import monitorRoutes from './routes/monitor.routes';
+import insightsRoutes from './routes/insights.routes';
 import emailRoutes from './routes/email.routes';
 import authRoutes from './routes/auth.routes'
 import { EbayAuthService } from './services/ebay-auth.service';
@@ -148,7 +149,7 @@ async function initialize() {
     // Initialize services
     const rateLimitService = new RateLimitService(redis);
     const ebayAuthService = new EbayAuthService(redis);
-    const ebayService = new EbayService(ebayAuthService);
+    const ebayService = new EbayService(ebayAuthService, redis);
     const cacheService = new CacheService(redis);
     const emailService = new EmailService();
     const notificationService = new NotificationService(rateLimitService, emailService);
@@ -180,6 +181,7 @@ async function initialize() {
     // Routes
     app.use('/api/ebay-notifications', ebayNotificationRoutes);
     app.use('/api/monitors', monitorRoutes);
+    app.use('/api/insights', insightsRoutes);
     app.use('/api/emails', emailRoutes);
     app.use('/api/auth', authRoutes);
    

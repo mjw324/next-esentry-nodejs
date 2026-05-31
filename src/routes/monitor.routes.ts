@@ -19,7 +19,7 @@ const redis = new Redis(redisConfig);
 
 const rateLimitMiddleware = createRateLimitMiddleware(redis);
 const ebayAuthService = new EbayAuthService(redis);
-const ebayService = new EbayService(ebayAuthService);
+const ebayService = new EbayService(ebayAuthService, redis);
 const monitorQueue = new MonitorQueue(redis);
 const rateLimitService = new RateLimitService(redis);
 const monitorService = new MonitorService(rateLimitService, monitorQueue);
