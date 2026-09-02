@@ -141,17 +141,25 @@ export class MonitorController {
     }
   }
 
-  async unsubscribeFromMonitor(req: Request, res: Response, next: NextFunction) {
+  async unsubscribeFromMonitor(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
     try {
       const { token } = req.params;
 
       // Verify and decode the token
       const tokenData = this.unsubscribeService.verifyToken(token);
       if (!tokenData) {
-        return res.status(400).json({
+        // Send, then return void: returning the Response makes this handler
+        // incompatible with Express 5's RequestHandler type. index.ts used to
+        // load this controller through require(), which hid the mismatch.
+        res.status(400).json({
           success: false,
           message: 'Invalid or expired unsubscribe link'
         });
+        return;
       }
 
       // Unsubscribe from the monitor

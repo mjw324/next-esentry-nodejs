@@ -1,11 +1,11 @@
 // src/middleware/ratelimit.middleware.ts
 import { Request, Response, NextFunction } from 'express';
 import { RateLimitService } from '../services/ratelimit.service';
-import { Redis } from 'ioredis';
 
-export function createRateLimitMiddleware(redis: Redis) {
-  const rateLimitService = new RateLimitService(redis);
-
+// Takes the shared RateLimitService rather than a Redis client: it used to
+// construct its own per route module, so each copy kept a separate per-user
+// limit cache and Redis connection.
+export function createRateLimitMiddleware(rateLimitService: RateLimitService) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Skip rate limiting for non-authenticated routes

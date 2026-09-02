@@ -4,23 +4,14 @@ import { errorHandler } from './middleware/error.middleware';
 import { Redis } from 'ioredis';
 import { redisConfig } from './config/redis.config';
 import { prisma } from './lib/prisma';
-import { RateLimitService } from './services/ratelimit.service';
 import ebayNotificationRoutes from './routes/ebay-notification.routes';
-import monitorRoutes from './routes/monitor.routes';
-import insightsRoutes from './routes/insights.routes';
-import emailRoutes from './routes/email.routes';
-import authRoutes from './routes/auth.routes';
-import { EbayAuthService } from './services/ebay-auth.service';
-import { EbayService } from './services/ebay.service';
-import { CacheService } from './services/cache.service';
-import { NotificationService } from './services/notification.service';
-import { EmailService } from './services/email.service';
-import { VerificationService } from './services/verification.service';
-import { ComparisonService } from './services/comparison.service';
+import { createMonitorRouter } from './routes/monitor.routes';
+import { createInsightsRouter } from './routes/insights.routes';
+import { createEmailRouter } from './routes/email.routes';
+import { createAuthRouter } from './routes/auth.routes';
 import { MonitorWorker } from './workers/monitor.worker';
-import { MonitorService } from './services/monitor.service';
-import { MonitorQueue } from './queues/monitor.queue';
-import { BackoffService } from './services/backoff.service';
+import { MonitorController } from './controllers/monitor.controller';
+import { createContainer } from './container';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -161,37 +152,16 @@ async function initialize() {
     const dbTest = await prisma.$queryRaw`SELECT 1 as test`;
     console.log('Database connection verified');
 
-    // Initialize services
-    const rateLimitService = new RateLimitService(redis);
-    const ebayAuthService = new EbayAuthService(redis);
-    const ebayService = new EbayService(ebayAuthService, redis);
-    const cacheService = new CacheService(redis);
-    const backoffService = new BackoffService(redis);
-    const emailService = new EmailService();
-    const verificationService = new VerificationService();
-    const notificationService = new NotificationService(
-      rateLimitService,
-      emailService
-    );
-    const comparisonService = new ComparisonService(
-      notificationService,
-      emailService
-    );
+    // Build the service graph once and share it with every route module.
+    const container = createContainer(redis);
+    const { monitorService, ebayService, cacheService, comparisonService,
+            backoffService, emailService, verificationService } = container;
 
     // Initialize worker
     const monitorWorker = new MonitorWorker(
       ebayService,
       cacheService,
       comparisonService,
-      backoffService
-    );
-
-    // Initialize monitor service and queue
-    const monitorQueue = new MonitorQueue(redis);
-    const monitorService = new MonitorService(
-      rateLimitService,
-      monitorQueue,
-      cacheService,
       backoffService
     );
 
@@ -220,13 +190,12 @@ async function initialize() {
 
     // Routes
     app.use('/api/ebay-notifications', ebayNotificationRoutes);
-    app.use('/api/monitors', monitorRoutes);
-    app.use('/api/insights', insightsRoutes);
-    app.use('/api/emails', emailRoutes);
-    app.use('/api/auth', authRoutes);
+    app.use('/api/monitors', createMonitorRouter(container));
+    app.use('/api/insights', createInsightsRouter(container));
+    app.use('/api/emails', createEmailRouter(container));
+    app.use('/api/auth', createAuthRouter(container));
 
     // Unsubscribe route (no authentication required)
-    const { MonitorController } = require('./controllers/monitor.controller');
     const unsubscribeController = new MonitorController(
       monitorService,
       emailService,
