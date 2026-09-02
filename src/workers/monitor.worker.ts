@@ -80,23 +80,24 @@ export class MonitorWorker {
         sellers: monitor.sellers,
       });
 
-      // Transform eBay results to our internal format before caching
+      // Project to the fields the comparison and the email actually use.
+      // Storing the raw itemSummaries persisted every field eBay returned,
+      // twice over (once raw, once projected), for 24h per monitor.
       const transformedResults: TransformedEbayResults = {
-        items: (newResults.itemSummaries || []).map(item => ({
+        items: (newResults.itemSummaries || []).map((item) => ({
           itemId: item.itemId,
           title: item.title,
-          price: parseFloat(item.price.value),
+          price: item.price,
           condition: item.condition,
-          seller: item.seller.username,
-          link: item.itemWebUrl,
-          timestamp: new Date()
+          seller: {
+            username: item.seller?.username,
+            feedbackScore: item.seller?.feedbackScore,
+          },
+          itemWebUrl: item.itemWebUrl,
+          image: item.image ? { imageUrl: item.image.imageUrl } : undefined,
         })),
         total: newResults.total,
         timestamp: new Date(),
-        href: newResults.href,
-        limit: newResults.limit,
-        offset: newResults.offset, 
-        itemSummaries: newResults.itemSummaries,
       };
 
       await this.cacheService.storeResults(monitorId, transformedResults);

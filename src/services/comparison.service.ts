@@ -1,6 +1,6 @@
 import { NotificationService } from "./notification.service";
 import { EmailService } from "./email.service";
-import { EbayItem, TransformedEbayResults } from "../types/ebay.types";
+import { NotifiableItem, TransformedEbayResults } from "../types/ebay.types";
 import { logger } from "../utils/logger";
 
 export class ComparisonService {
@@ -16,7 +16,7 @@ export class ComparisonService {
         oldResults: TransformedEbayResults,
         newResults: TransformedEbayResults
     ): Promise<void> {
-        const newItems = this.findNewItems(oldResults.itemSummaries || [], newResults.itemSummaries || []);
+        const newItems = this.findNewItems(oldResults.items || [], newResults.items || []);
 
         if (newItems.length > 0) {
             logger.info('monitor.new_items', { monitorId, count: newItems.length });
@@ -31,7 +31,7 @@ export class ComparisonService {
         }
     }
 
-    private findNewItems(oldItems: EbayItem[], newItems: EbayItem[]): EbayItem[] {
+    private findNewItems(oldItems: NotifiableItem[], newItems: NotifiableItem[]): NotifiableItem[] {
         if (!oldItems || !newItems) {
             return newItems || [];
         }

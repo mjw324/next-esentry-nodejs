@@ -1,7 +1,7 @@
 // src/services/email.service.ts
 import { SES } from '@aws-sdk/client-ses';
 import { emailConfig } from '../config/email.config';
-import { EbayItem } from '../types/ebay.types';
+import { NotifiableItem } from '../types/ebay.types';
 import { UnsubscribeTokenService } from '../utils/unsubscribe';
 
 export class EmailService {
@@ -128,7 +128,7 @@ export class EmailService {
   async sendNewItemsNotification(
     to: string,
     monitorTitle: string,
-    newItems: EbayItem[],
+    newItems: NotifiableItem[],
     monitorId: string
   ): Promise<void> {
     const monitorUrl = `${process.env.FRONTEND_URL}/monitors/${monitorId}`;
