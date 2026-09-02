@@ -31,6 +31,7 @@ if (process.env.REDIS_URL) {
   // When using REDIS_URL, ioredis can parse it directly
   redis = new Redis(process.env.REDIS_URL + '?family=0', {
     lazyConnect: true,
+    enableAutoPipelining: true,
     maxRetriesPerRequest: 3,
     enableReadyCheck: true,
     connectTimeout: 10000,
