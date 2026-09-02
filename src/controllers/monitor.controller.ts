@@ -89,7 +89,6 @@ export class MonitorController {
         res.status(400).json({ error: 'Active status must be a boolean' });
         return; // Just return without the response object
       }
-      console.log(`"Im getting here ${id} ${active}`)
       const userId = req.user.id;
   
       // Verify the monitor belongs to the user
@@ -99,12 +98,10 @@ export class MonitorController {
           userId
         }
       });
-      console.log(`"Im getting here ${id} ${active}`)
       if (!monitor) {
         res.status(404).json({ error: 'Monitor not found' });
         return; // Just return without the response object
       }
-      console.log(`"Im getting here ${id} ${active}`)
       // Toggle the monitor status
       const updatedMonitor = await this.monitorService.toggleMonitorStatus(id, active);
   

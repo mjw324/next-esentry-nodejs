@@ -1,6 +1,7 @@
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { bullMQRedisConnection } from '../config/redis.config';
+import { logger } from '../utils/logger';
 
 /**
  * Job retention. `removeOnFail: false` (the previous setting) meant every
@@ -58,13 +59,10 @@ export class MonitorQueue {
         }
       );
 
-      console.log(`Job scheduler created/updated for monitor: ${monitorId}`);
+      logger.debug('queue.scheduler.upserted', { monitorId, interval });
       return firstJob;
     } catch (error) {
-      console.error(
-        `Error creating job scheduler for monitor ${monitorId}:`,
-        error
-      );
+      logger.error('queue.scheduler.upsert_failed', { monitorId, error });
       throw error;
     }
   }
@@ -76,31 +74,23 @@ export class MonitorQueue {
       // Step 1: Remove the job scheduler
       const removed = await this.queue.removeJobScheduler(schedulerId);
 
-      console.log(
-        `Job scheduler removal attempt for ${schedulerId}: ${removed ? 'Successful' : 'Not found'}`
-      );
+      logger.debug('queue.scheduler.removed', { monitorId, found: !!removed });
 
       // Step 2: Clean up pending jobs with retry logic for race conditions
       await this.removePendingJobsWithRetry(monitorId, schedulerId);
 
-      const schedulers = await this.queue.getJobSchedulers(0, 9, true);
-      console.log('Current job schedulers:', schedulers);
-
       return removed;
     } catch (error) {
-      console.error(
-        `Error removing job scheduler for monitor ${monitorId}:`,
-        error
-      );
 
       // Don't throw for "not found" errors or lock conflicts - these are expected
       if (error instanceof Error &&
           (error.message.includes('could not be removed because it is locked') ||
            error.message.includes('not found'))) {
-        console.log(`Job removal skipped due to lock or not found: ${monitorId}`);
+        logger.debug('queue.scheduler.remove_skipped', { monitorId });
         return false;
       }
 
+      logger.error('queue.scheduler.remove_failed', { monitorId, error });
       throw error;
     }
   }
@@ -121,15 +111,15 @@ export class MonitorQueue {
           ) {
             try {
               await job.remove();
-              console.log(`Removed pending job for monitor: ${monitorId}`);
+              logger.debug('queue.job.removed', { monitorId, jobId: job.id });
             } catch (jobError) {
               // Handle individual job removal errors
               if (jobError instanceof Error &&
                   jobError.message.includes('could not be removed because it is locked')) {
-                console.log(`Job ${job.id} is locked, skipping removal (attempt ${attempt}/${maxRetries})`);
+                logger.debug('queue.job.locked', { jobId: job.id, attempt, maxRetries });
 
                 if (attempt === maxRetries) {
-                  console.log(`Final attempt: Job ${job.id} remains locked, but continuing`);
+                  logger.warn('queue.job.still_locked', { jobId: job.id, monitorId });
                 } else {
                   // Wait before retry with exponential backoff
                   await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100));
@@ -147,7 +137,7 @@ export class MonitorQueue {
 
       } catch (error) {
         if (attempt === maxRetries) {
-          console.log(`Failed to remove all pending jobs after ${maxRetries} attempts, but continuing`);
+          logger.warn('queue.job.cleanup_incomplete', { monitorId, maxRetries });
           break;
         }
         // Continue to next attempt
@@ -174,7 +164,7 @@ export class MonitorQueue {
     try {
       removed.failed = (await this.queue.clean(graceMs, limit, 'failed')).length;
     } catch (error) {
-      console.error('Error cleaning failed jobs:', error);
+      logger.error('queue.clean.failed_jobs_error', { error });
     }
 
     try {
@@ -183,13 +173,11 @@ export class MonitorQueue {
         await this.queue.clean(completedGrace, limit, 'completed')
       ).length;
     } catch (error) {
-      console.error('Error cleaning completed jobs:', error);
+      logger.error('queue.clean.completed_jobs_error', { error });
     }
 
     if (removed.failed || removed.completed) {
-      console.log(
-        `Queue cleanup: removed ${removed.failed} failed, ${removed.completed} completed jobs`
-      );
+      logger.info('queue.cleaned', removed);
     }
 
     return removed;
@@ -205,7 +193,7 @@ export class MonitorQueue {
       const schedulers = await this.queue.getJobSchedulers(0, 1000, true);
       return schedulers;
     } catch (error) {
-      console.error('Error getting job schedulers:', error);
+      logger.error('queue.schedulers.list_failed', { error });
       return [];
     }
   }

@@ -5,6 +5,7 @@ import { ebayConfig } from '../config/ebay.config';
 import { EbaySearchParams, EbaySearchResults, EbayItem } from '../types/ebay.types';
 import { EbayAuthService } from './ebay-auth.service';
 import { RateLimitError } from '../utils/errors';
+import { logger } from '../utils/logger';
 
 // Default fieldgroups for an insights snapshot call. MATCHING_ITEMS keeps the
 // itemSummaries in the response while the *_REFINEMENTS groups add the
@@ -49,7 +50,6 @@ export class EbayService {
   
       // Build filter string
       const filter = this.buildFilterString(params);
-      console.log('Filter string: ', filter);
   
       const response = await axios.get<EbaySearchResults>(
         `${ebayConfig.apiUrl}/item_summary/search`,
@@ -90,7 +90,13 @@ export class EbayService {
         itemSummaries: filteredItems
       };
     } catch (error) {
-      console.error('eBay API error:', error);
+      // Log only status + body. The raw axios error carries config.headers,
+      // which includes the bearer token.
+      logger.error('ebay.search.failed', {
+        status: axios.isAxiosError(error) ? error.response?.status : undefined,
+        body: axios.isAxiosError(error) ? error.response?.data : undefined,
+        message: error instanceof Error ? error.message : String(error),
+      });
       throw new Error('Failed to fetch items from eBay');
     }
   }
@@ -145,7 +151,11 @@ export class EbayService {
     } catch (error) {
       // Re-throw quota errors untouched so callers can surface 429s.
       if (error instanceof RateLimitError) throw error;
-      console.error('eBay market search error:', error);
+      logger.error('ebay.market.failed', {
+        status: axios.isAxiosError(error) ? error.response?.status : undefined,
+        body: axios.isAxiosError(error) ? error.response?.data : undefined,
+        message: error instanceof Error ? error.message : String(error),
+      });
       throw new Error('Failed to fetch market data from eBay');
     }
   }
@@ -161,7 +171,7 @@ export class EbayService {
       const raw = await this.redis.get(this.QUOTA_KEY);
       used = raw ? parseInt(raw, 10) : 0;
     } catch (error) {
-      console.error('Error reading eBay quota counter:', error);
+      logger.error('ebay.quota.read_failed', { error });
     }
     return { used, softCap: this.QUOTA_SOFT_CAP, remaining: Math.max(0, this.QUOTA_SOFT_CAP - used) };
   }
@@ -193,7 +203,7 @@ export class EbayService {
         await this.redis.expire(this.QUOTA_KEY, secondsUntilMidnight);
       }
     } catch (error) {
-      console.error('Error tracking eBay quota counter:', error);
+      logger.error('ebay.quota.track_failed', { error });
     }
   }
 
@@ -230,43 +240,43 @@ export class EbayService {
     return items.filter(item => !excludedPattern.test(item.title));
   }
 
+  /**
+   * One structured line per search. Previously this emitted ~25 lines of
+   * indented JSON per call plus up to three sample titles, which at 293
+   * calls/day was ~7,300 log lines for two monitors.
+   */
   private logApiResponseSummary(data: EbaySearchResults, params: EbaySearchParams): void {
-    // Create a condensed summary object
-    const summary = {
-      search: {
-        keywords: params.keywords,
-        excludedKeywords: params.excludedKeywords,
-        priceRange: `$${params.minPrice || 'min'} - $${params.maxPrice || 'max'}`,
-        conditions: params.conditions,
-        sellers: params.sellers,
-      },
-      results: {
-        total: data.total,
-        count: data.itemSummaries?.length || 0,
-        marketplaces: data.itemSummaries ? 
-          [...new Set(data.itemSummaries.map(item => item.listingMarketplaceId))] : [],
-        itemTypes: data.itemSummaries ? 
-          [...new Set(data.itemSummaries.map(item => item.condition))].map(c => `${c}`).join(', ') : '',
-      },
-      warnings: data.warnings?.map((w: { errorId: any; message: any; }) => ({
-        errorId: w.errorId,
-        message: w.message
-      })) || []
-    };
+    logger.info('ebay.search', {
+      keywords: params.keywords.length,
+      total: data.total,
+      returned: data.itemSummaries?.length ?? 0,
+    });
 
-    console.log('eBay API search summary:', JSON.stringify(summary, null, 2));
-
-    // If there are warnings, log them more prominently
-    if (data.warnings && data.warnings.length > 0) {
-      console.warn('eBay API warnings:', 
-        data.warnings.map((w: { message: any; }) => w.message).join('; '));
+    // Warnings are rare and actionable, so they get their own line -- but only
+    // when present, rather than logging an empty array every time.
+    if (data.warnings?.length) {
+      logger.warn('ebay.search.warnings', {
+        warnings: data.warnings.map((w: { errorId: unknown; message: unknown }) => ({
+          errorId: w.errorId,
+          message: w.message,
+        })),
+      });
     }
 
-    // Log a small sample of results (just titles) for verification
-    if (data.itemSummaries && data.itemSummaries.length > 0) {
-      console.log('Sample listings (first 3):');
-      data.itemSummaries.slice(0, 3).forEach((item, i) => {
-        console.log(`${i+1}. ${item.title} - $${item.price.value} (${item.condition})`);
+    // Full detail stays available at debug level, built only when emitted.
+    if (logger.isDebug()) {
+      logger.debug('ebay.search.detail', {
+        keywords: params.keywords,
+        excludedKeywords: params.excludedKeywords,
+        minPrice: params.minPrice,
+        maxPrice: params.maxPrice,
+        conditions: params.conditions,
+        sellers: params.sellers,
+        sample: (data.itemSummaries ?? []).slice(0, 3).map((item) => ({
+          title: item.title,
+          price: item.price?.value,
+          condition: item.condition,
+        })),
       });
     }
   }

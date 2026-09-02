@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { logger } from '../utils/logger';
 
 // TODO: Consider JWT validation with Auth.js
 export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
@@ -23,12 +24,9 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
       id: typeof userId === 'string' ? userId : String(userId) 
     };
 
-    // For debugging during development
-    console.log(`Request authenticated for user: ${req.user.id}`);
-
     next();
   } catch (error) {
-    console.error('Authentication error:', error);
+    logger.error('auth.middleware_failed', { error });
     res.status(401).json({ error: 'Authentication failed' });
     // No return statement here
   }

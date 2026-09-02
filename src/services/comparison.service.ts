@@ -1,6 +1,7 @@
 import { NotificationService } from "./notification.service";
 import { EmailService } from "./email.service";
 import { EbayItem, TransformedEbayResults } from "../types/ebay.types";
+import { logger } from "../utils/logger";
 
 export class ComparisonService {
     constructor(
@@ -17,7 +18,7 @@ export class ComparisonService {
         const newItems = this.findNewItems(oldResults.itemSummaries || [], newResults.itemSummaries || []);
 
         if (newItems.length > 0) {
-            console.log(`Found ${newItems.length} new items for monitor ${monitorId}: `, newItems);
+            logger.info('monitor.new_items', { monitorId, count: newItems.length });
             await this.notificationService.sendNotification({
                 userId,
                 monitorId,

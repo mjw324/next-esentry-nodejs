@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma';
 import { Job } from 'bullmq';
 import { bullMQRedisConnection } from '../config/redis.config';
 import { TransformedEbayResults } from '../types/ebay.types';
+import { logger } from '../utils/logger';
 
 export class MonitorWorker {
   private worker: Worker;
@@ -26,12 +27,17 @@ export class MonitorWorker {
         }
       }
     );
-    this.worker.on('error', err => {
-      console.error('Monitor worker error:', err);
+    this.worker.on('error', (err) => {
+      logger.error('worker.error', { error: err });
     });
 
     this.worker.on('failed', (job, err) => {
-      console.error(`Job ${job?.id} failed:`, err);
+      logger.error('worker.job_failed', {
+        jobId: job?.id,
+        monitorId: job?.data?.monitorId,
+        attemptsMade: job?.attemptsMade,
+        error: err,
+      });
     });
   }
 
@@ -43,13 +49,13 @@ export class MonitorWorker {
     });
 
     if (!monitor) {
-      console.log(`Monitor ${monitorId} not found in database, likely deleted. Skipping job.`);
+      logger.debug('worker.skip', { monitorId, reason: 'deleted' });
       return; // Gracefully skip processing for deleted monitors
     }
 
     // Check if monitor is still active before processing
     if (monitor.status !== 'active') {
-      console.log(`Monitor ${monitorId} is now inactive, skipping job`);
+      logger.debug('worker.skip', { monitorId, reason: 'inactive' });
       return; // Skip processing for inactive monitors
     }
 
@@ -104,7 +110,7 @@ export class MonitorWorker {
         },
       });
     } catch (error) {
-      console.error(`Error processing monitor ${monitorId}:`, error);
+      logger.error('worker.job_error', { monitorId, error });
       throw error;
     }
   }
