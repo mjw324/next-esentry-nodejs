@@ -42,11 +42,13 @@ export class MonitorQueue {
     interval: number = parseInt(process.env.MONITOR_INTERVAL || '7200000')
   ) {
     try {
-      // First ensure no existing jobs are running for this monitor
-      await this.removeMonitorJob(monitorId);
-
       // Create a scheduler ID that's consistent and unique for this monitor
       const schedulerId = `monitor:${monitorId}`;
+
+      // No removeMonitorJob first: upsertJobScheduler is called with
+      // override: true internally, so it replaces the scheduler and its next
+      // delayed job atomically. The old remove-then-add cost a full queue scan
+      // on every call and briefly left the monitor unscheduled.
 
       // Use upsertJobScheduler to create or update the job scheduler
       const firstJob = await this.queue.upsertJobScheduler(
@@ -95,53 +97,71 @@ export class MonitorQueue {
     }
   }
 
-  private async removePendingJobsWithRetry(monitorId: string, schedulerId: string, maxRetries: number = 3) {
+  /**
+   * Remove any still-queued job belonging to a monitor.
+   *
+   * This used to call `getJobs(['waiting','active','delayed'])`, which BullMQ
+   * implements as one HGETALL per job in the queue (Job.fromId for every id)
+   * before filtering in JavaScript -- O(queue depth) per toggle, retried up to
+   * three times, so every user's toggle paid for every other user's pending
+   * jobs.
+   *
+   * `removeJobScheduler` already deletes the scheduler's next delayed job
+   * atomically in Lua, so the only job that can remain is one already promoted
+   * to waiting/active. Those are found by id prefix instead of by scanning:
+   * BullMQ names scheduler jobs `repeat:<schedulerId>:<millis>`.
+   */
+  private async removePendingJobsWithRetry(
+    monitorId: string,
+    schedulerId: string,
+    maxRetries: number = 3
+  ) {
+    const prefix = `repeat:${schedulerId}:`;
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const pendingJobs = await this.queue.getJobs([
-          'waiting',
-          'active',
-          'delayed',
-        ]);
+      let allClear = true;
 
-        for (const job of pendingJobs) {
-          if (
-            job.name === schedulerId ||
-            (job.data && job.data.monitorId === monitorId)
-          ) {
-            try {
-              await job.remove();
-              logger.debug('queue.job.removed', { monitorId, jobId: job.id });
-            } catch (jobError) {
-              // Handle individual job removal errors
-              if (jobError instanceof Error &&
-                  jobError.message.includes('could not be removed because it is locked')) {
-                logger.debug('queue.job.locked', { jobId: job.id, attempt, maxRetries });
+      // Only the short waiting/active lists, not the whole queue, and ids only.
+      const [waiting, active] = await Promise.all([
+        this.queue.getRanges(['waiting'], 0, -1),
+        this.queue.getRanges(['active'], 0, -1),
+      ]);
 
-                if (attempt === maxRetries) {
-                  logger.warn('queue.job.still_locked', { jobId: job.id, monitorId });
-                } else {
-                  // Wait before retry with exponential backoff
-                  await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100));
-                  throw jobError; // Retry the entire operation
-                }
-              } else {
-                throw jobError;
-              }
-            }
+      const candidates = [...waiting, ...active].filter(
+        (id): id is string => typeof id === 'string' && id.startsWith(prefix)
+      );
+
+      for (const jobId of candidates) {
+        try {
+          const job = await this.queue.getJob(jobId);
+          if (!job) continue;
+          await job.remove();
+          logger.debug('queue.job.removed', { monitorId, jobId });
+        } catch (jobError) {
+          const locked =
+            jobError instanceof Error &&
+            jobError.message.includes('could not be removed because it is locked');
+
+          if (!locked) {
+            logger.error('queue.job.remove_failed', { monitorId, jobId, error: jobError });
+            continue;
           }
-        }
 
-        // If we get here, all jobs were processed successfully
-        break;
-
-      } catch (error) {
-        if (attempt === maxRetries) {
-          logger.warn('queue.job.cleanup_incomplete', { monitorId, maxRetries });
-          break;
+          allClear = false;
+          logger.debug('queue.job.locked', { jobId, attempt, maxRetries });
         }
-        // Continue to next attempt
       }
+
+      if (allClear) return;
+
+      if (attempt === maxRetries) {
+        // A locked job is held by a running worker; it will finish on its own
+        // and the worker's inactive-monitor guard makes the outcome harmless.
+        logger.warn('queue.job.cleanup_incomplete', { monitorId, maxRetries });
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 2 ** attempt * 100));
     }
   }
 
