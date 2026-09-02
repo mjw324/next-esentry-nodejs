@@ -315,9 +315,6 @@ async function initialize() {
 
     app.use(errorHandler);
 
-    // Initialize active monitors before starting the server
-    await monitorService.initializeActiveMonitors();
-
     app.listen(port, () => {
       console.log('=== Server Started ===');
       console.log(`Listening on port ${port}`);
@@ -325,6 +322,14 @@ async function initialize() {
       console.log(`Frontend URL: ${process.env.FRONTEND_URL}`);
       console.log(`Health check: http://localhost:${port}/health`);
       console.log('=====================');
+
+      // Reconcile schedulers after the server is accepting traffic. This work
+      // scales with the number of active monitors, and blocking on it meant
+      // the health check failed for its whole duration. The worker is already
+      // consuming the queue by this point, so nothing is missed.
+      monitorService.initializeActiveMonitors().catch((error) => {
+        console.error('Monitor initialization failed:', error);
+      });
     });
   } catch (error) {
     console.error('=== Initialization Failed ===');

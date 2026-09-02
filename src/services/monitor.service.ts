@@ -5,6 +5,7 @@ import { MonitorQueue } from '../queues/monitor.queue';
 import { CacheService } from './cache.service';
 import { BackoffService } from './backoff.service';
 import { RateLimitError } from '../utils/errors';
+import { logger } from '../utils/logger';
 
 export class MonitorService {
   constructor(
@@ -50,25 +51,36 @@ export class MonitorService {
         `Found ${activeMonitors.length} active monitors to initialize`
       );
 
-      for (const monitor of activeMonitors) {
-        try {
-          // Only the snapshot is dropped here, not the backoff state: a deploy
-          // says nothing about whether a monitor's query is productive, and
-          // resetting it would send every barren monitor back to full rate.
-          await this.cacheService.clearResults(monitor.id);
-          await this.monitorQueue.addMonitorJob(monitor.id, monitor.interval);
-          console.log(
-            `Initialized job scheduler for monitor: ${monitor.id} (interval: ${monitor.interval}ms)`
-          );
-        } catch (error) {
-          console.error(
-            `Failed to initialize job scheduler for monitor ${monitor.id}:`,
-            error
-          );
-        }
+      // Reconcile in bounded parallel rather than one monitor at a time. The
+      // old loop was two serialised Redis round trips plus a scheduler upsert
+      // per monitor; at 200 active monitors that is 400+ sequential round
+      // trips, and this runs before the server accepts traffic.
+      const CONCURRENCY = 10;
+      let initialized = 0;
+      let failed = 0;
+
+      for (let i = 0; i < activeMonitors.length; i += CONCURRENCY) {
+        const batch = activeMonitors.slice(i, i + CONCURRENCY);
+
+        await Promise.all(
+          batch.map(async (monitor) => {
+            try {
+              // Only the snapshot is dropped here, not the backoff state: a
+              // deploy says nothing about whether a monitor's query is
+              // productive, and resetting it would send every barren monitor
+              // back to full rate.
+              await this.cacheService.clearResults(monitor.id);
+              await this.monitorQueue.addMonitorJob(monitor.id, monitor.interval);
+              initialized++;
+            } catch (error) {
+              failed++;
+              logger.error('monitor.init_failed', { monitorId: monitor.id, error });
+            }
+          })
+        );
       }
 
-      console.log('Monitor initialization complete');
+      logger.info('monitor.init_complete', { initialized, failed });
     } catch (error) {
       console.error('Error during monitor initialization:', error);
     }
