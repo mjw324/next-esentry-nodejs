@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { EmailSettings, NotificationPayload } from '../types/notification.types';
 import { RateLimitService } from './ratelimit.service';
 import { EmailService } from './email.service';
-import { EbayItem } from '../types/ebay.types';
+import { NotifiableItem } from '../types/ebay.types';
 import { logger } from '../utils/logger';
 
 export class NotificationService {
@@ -64,7 +64,7 @@ export class NotificationService {
       await this.emailService.sendNewItemsNotification(
         recipient,
         payload.monitorTitle,
-        payload.data.newItems as EbayItem[],
+        payload.data.newItems as NotifiableItem[],
         payload.monitorId
       );
 
@@ -79,7 +79,7 @@ export class NotificationService {
 
       logger.info('notification.sent', {
         monitorId: payload.monitorId,
-        items: (payload.data.newItems as EbayItem[])?.length ?? 0,
+        items: (payload.data.newItems as NotifiableItem[])?.length ?? 0,
       });
     } catch (error) {
       logger.error('notification.send_failed', {
