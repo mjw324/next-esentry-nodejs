@@ -1,4 +1,5 @@
 import { Queue } from 'bullmq';
+import { createHash } from 'crypto';
 import { Redis } from 'ioredis';
 import { bullMQRedisConnection } from '../config/redis.config';
 import { logger } from '../utils/logger';
@@ -23,6 +24,25 @@ const JOB_OPTIONS = {
     delay: 1000,
   },
 } as const;
+
+/**
+ * Spread scheduler fire times across the interval.
+ *
+ * BullMQ aligns `every: N` to epoch multiples, so every monitor sharing an
+ * interval fires in the same instant. Production shows it exactly: the 2-hour
+ * monitor's next run is 02:00:00.000Z and the 5-minute one's is 02:20:00.000Z.
+ * With many monitors that is a synchronised burst against eBay, Postgres and
+ * the worker's concurrency limit, followed by a quiet stretch.
+ *
+ * A stable per-monitor offset derived from its id keeps each monitor's own
+ * cadence exact while decorrelating it from its neighbours. Deterministic, so
+ * a restart or reschedule does not move a monitor to a different slot.
+ */
+function schedulerOffset(monitorId: string, interval: number): number {
+  const digest = createHash('sha1').update(monitorId).digest();
+  // 32 bits of the digest is ample spread and stays well inside Number range.
+  return digest.readUInt32BE(0) % Math.max(interval, 1);
+}
 
 export class MonitorQueue {
   private queue: Queue;
@@ -53,7 +73,7 @@ export class MonitorQueue {
       // Use upsertJobScheduler to create or update the job scheduler
       const firstJob = await this.queue.upsertJobScheduler(
         schedulerId,
-        { every: interval },
+        { every: interval, offset: schedulerOffset(monitorId, interval) },
         {
           name: schedulerId,
           data: { monitorId },
