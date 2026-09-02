@@ -12,6 +12,7 @@ export class ComparisonService {
     async compareResults(
         monitorId: string,
         userId: string,
+        monitorTitle: string,
         oldResults: TransformedEbayResults,
         newResults: TransformedEbayResults
     ): Promise<void> {
@@ -22,6 +23,7 @@ export class ComparisonService {
             await this.notificationService.sendNotification({
                 userId,
                 monitorId,
+                monitorTitle,
                 type: 'MONITOR_RESULTS',
                 message: 'New items found for your monitor',
                 data: { newItems }
