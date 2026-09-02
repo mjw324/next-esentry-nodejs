@@ -93,10 +93,11 @@ export class MonitorController {
   
       // Verify the monitor belongs to the user
       const monitor = await prisma.monitor.findFirst({
-        where: { 
+        where: {
           id,
           userId
-        }
+        },
+        select: { id: true },
       });
       if (!monitor) {
         res.status(404).json({ error: 'Monitor not found' });
