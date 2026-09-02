@@ -96,6 +96,7 @@ export class MonitorWorker {
         await this.comparisonService.compareResults(
           monitorId,
           monitor.userId,
+          monitor.keywords.join(' '),
           previousResults,
           transformedResults
         );
