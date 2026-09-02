@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { RateLimitError, ValidationError } from '../utils/errors';
+import { logger } from '../utils/logger';
 
 export const errorHandler = (
   error: Error,
@@ -7,7 +8,14 @@ export const errorHandler = (
   res: Response,
   next: NextFunction
 ): void => {
-  console.error(error);
+  // Log the shape of the failure, not the whole error object: Prisma errors
+  // embed the failing query and its parameters.
+  logger.error('request.failed', {
+    method: req.method,
+    path: req.path,
+    name: error.name,
+    message: error.message,
+  });
 
   // Handle RateLimitError
   if (error instanceof RateLimitError) {

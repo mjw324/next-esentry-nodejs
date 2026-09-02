@@ -4,6 +4,7 @@ import { EmailSettings, NotificationPayload } from '../types/notification.types'
 import { RateLimitService } from './ratelimit.service';
 import { EmailService } from './email.service';
 import { EbayItem } from '../types/ebay.types';
+import { logger } from '../utils/logger';
 
 export class NotificationService {
   constructor(
@@ -31,8 +32,6 @@ export class NotificationService {
   }
 
   async sendNotification(payload: NotificationPayload): Promise<void> {
-    console.log('Sending notification:', payload);
-
     // Check rate limits
     const canSend = await this.rateLimitService.checkNotificationLimit(
       payload.userId,
@@ -40,7 +39,10 @@ export class NotificationService {
     );
 
     if (!canSend) {
-      console.log(`Rate limit exceeded for user ${payload.userId}`);
+      logger.warn('notification.rate_limited', {
+        userId: payload.userId,
+        monitorId: payload.monitorId,
+      });
       return;
     }
 
@@ -50,7 +52,7 @@ export class NotificationService {
     });
 
     if (!user) {
-      console.log(`User not found: ${payload.userId}`);
+      logger.warn('notification.user_missing', { userId: payload.userId });
       return;
     }
 
@@ -62,7 +64,7 @@ export class NotificationService {
     });
 
     if (!monitor) {
-      console.log(`Monitor not found: ${payload.monitorId}`);
+      logger.warn('notification.monitor_missing', { monitorId: payload.monitorId });
       return;
     }
 
@@ -82,12 +84,18 @@ export class NotificationService {
           payload.monitorId
         );
 
-        console.log(`Email notification sent to ${emailAddress} for monitor ${monitor.id}`);
+        logger.info('notification.sent', {
+          monitorId: monitor.id,
+          items: (payload.data.newItems as EbayItem[])?.length ?? 0,
+        });
       } else if (payload.type === 'MONITOR_RESULTS') {
-        console.log(`No active email found for user ${payload.userId}`);
+        logger.warn('notification.no_active_email', { userId: payload.userId });
       }
     } catch (error) {
-      console.error('Error sending notification:', error);
+      logger.error('notification.send_failed', {
+        monitorId: payload.monitorId,
+        error,
+      });
     }
   }  
 
