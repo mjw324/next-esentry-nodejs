@@ -30,6 +30,14 @@ export interface SearchMarketOptions {
   offset?: number;
 }
 
+/**
+ * Outbound timeout for Browse calls. axios defaults to none, so a hung
+ * connection to eBay held a worker slot forever; with concurrency 5, five
+ * stuck calls stopped all monitoring silently while BullMQ's stalled-check
+ * kept re-queueing the jobs.
+ */
+const EBAY_REQUEST_TIMEOUT_MS = 10_000;
+
 export class EbayService {
   // Shared application-level Browse quota counter (eBay default ~5,000/day, app
   // level — NOT per user). Soft cap leaves headroom below the real ceiling.
@@ -65,7 +73,8 @@ export class EbayService {
             filter,
             sort: 'newlyListed',
             limit: ebayConfig.defaultLimit
-          }
+          },
+          timeout: EBAY_REQUEST_TIMEOUT_MS,
         }
       );
   
@@ -142,6 +151,7 @@ export class EbayService {
             'X-EBAY-C-ENDUSERCTX': 'contextualLocation=country=US',
           },
           params: queryParams,
+          timeout: EBAY_REQUEST_TIMEOUT_MS,
         }
       );
 
@@ -181,7 +191,7 @@ export class EbayService {
    * exceed the soft cap. Called before insights requests so we back off near
    * the ceiling instead of burning the monitoring flow's quota.
    */
-  private async assertQuota(neededCalls: number): Promise<void> {
+  async assertQuota(neededCalls: number): Promise<void> {
     const { used, softCap } = await this.getQuotaUsage();
     if (used + neededCalls > softCap) {
       throw new RateLimitError(

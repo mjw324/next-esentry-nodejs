@@ -98,9 +98,14 @@ export class InsightsService {
     const cached = await this.cacheService.getJSON<CalibrationSummary>(cacheKey);
     if (cached) return cached;
 
-    // Both reuse the shared raw-sample caches, so this stays within 3 calls.
-    const { items, total } = await this.gatherSample(params);
-    const outlier = this.buildOutlierResult(params, items);
+    // Go through getOutliers rather than recomputing: it has its own cache, so
+    // a calibrate that follows an outliers call for the same params does no
+    // eBay work and no duplicate token/outlier analysis. Both paths share the
+    // raw-sample caches underneath, keeping a cold calibrate within 3 calls.
+    const [outlier, { items, total }] = await Promise.all([
+      this.getOutliers(params),
+      this.gatherSample(params),
+    ]);
 
     const prices = this.pricesOf(items);
     const noiseTerms = outlier.suggestedRefinements.suggestedExcludedKeywords;
@@ -161,6 +166,11 @@ export class InsightsService {
    * cache from Phase 1, so this is at most 3 calls (often fewer when warm).
    */
   private async gatherSample(params: EbaySearchParams): Promise<{ items: EbayItem[]; total: number }> {
+    // Reserve the whole fan-out up front. The three calls below run
+    // concurrently and each used to assert quota for 1, so near the soft cap
+    // all three passed the gate independently and overshot it.
+    await this.ebayService.assertQuota(3);
+
     const [snapshot, asc, desc] = await Promise.all([
       this.getSnapshotRaw(params),
       this.getTailRaw(params, SORT_PRICE_ASC, 'asc-raw'),
