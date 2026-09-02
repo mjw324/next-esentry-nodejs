@@ -317,6 +317,9 @@ async function initialize() {
       monitorService.initializeActiveMonitors().catch((error) => {
         console.error('Monitor initialization failed:', error);
       });
+
+      // Daily sweep of expired sessions and verification tokens.
+      container.cleanupService.start();
     });
   } catch (error) {
     console.error('=== Initialization Failed ===');
