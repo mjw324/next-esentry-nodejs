@@ -197,6 +197,14 @@ async function initialize() {
 
     console.log('All services initialized');
 
+    // Don't advertise the framework. The domain is scanned constantly
+    // (~2,300 probes/week in production), so this is a free fingerprint.
+    app.disable('x-powered-by');
+
+    // No client issues conditional GETs against this API, so hashing every
+    // JSON response body to produce an ETag is pure overhead.
+    app.set('etag', false);
+
     // Configure CORS
     app.use(
       cors({
@@ -207,7 +215,8 @@ async function initialize() {
       })
     );
 
-    app.use(express.json());
+    // No legitimate request approaches this; the default is 100kb.
+    app.use(express.json({ limit: '32kb' }));
 
     // Routes
     app.use('/api/ebay-notifications', ebayNotificationRoutes);
@@ -228,8 +237,16 @@ async function initialize() {
       unsubscribeController.unsubscribeFromMonitor.bind(unsubscribeController)
     );
 
-    // Health check
-    app.get('/health', async (req, res) => {
+    // Liveness: is the process up and serving? No I/O, so a brief Redis or
+    // database blip cannot get the container restarted -- which, since the
+    // health check gates the deploy, used to be an expensive false positive.
+    app.get('/health', (req, res) => {
+      res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+    });
+
+    // Readiness: are the dependencies actually reachable? For dashboards and
+    // humans, not for the platform's restart decision.
+    app.get('/ready', async (req, res) => {
       const health: any = {
         status: 'checking',
         timestamp: new Date().toISOString(),
