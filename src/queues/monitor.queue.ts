@@ -2,20 +2,37 @@ import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { bullMQRedisConnection } from '../config/redis.config';
 
+/**
+ * Job retention. `removeOnFail: false` (the previous setting) meant every
+ * failed job hash was kept forever: production accumulated 2,414 of them,
+ * 99% of all Redis keys and ~2.5MB of stacktraces, most from a single
+ * deleted monitor whose scheduler kept firing. Keep a bounded, recent
+ * window instead -- enough to debug, not enough to grow without limit.
+ */
+export const JOB_RETENTION = {
+  removeOnComplete: { age: 3600, count: 100 }, // 1h / 100 jobs
+  removeOnFail: { age: 7 * 24 * 3600, count: 200 }, // 7d / 200 jobs
+} as const;
+
+const JOB_OPTIONS = {
+  ...JOB_RETENTION,
+  attempts: 3,
+  backoff: {
+    type: 'exponential',
+    delay: 1000,
+  },
+} as const;
+
 export class MonitorQueue {
   private queue: Queue;
 
   constructor(redis: Redis) {
     this.queue = new Queue('monitor-queue', {
       connection: bullMQRedisConnection,
-      defaultJobOptions: {
-        removeOnComplete: true,
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 1000,
-        },
-      },
+      defaultJobOptions: { ...JOB_OPTIONS },
+      // Default is 10,000 events (~1.4MB in production for a queue with two
+      // monitors). Nothing consumes this stream, so keep a short tail.
+      streams: { events: { maxLen: 1000 } },
     });
   }
 
@@ -37,15 +54,7 @@ export class MonitorQueue {
         {
           name: schedulerId,
           data: { monitorId },
-          opts: {
-            removeOnComplete: true,
-            removeOnFail: false,
-            attempts: 3,
-            backoff: {
-              type: 'exponential',
-              delay: 1000,
-            },
-          },
+          opts: { ...JOB_OPTIONS },
         }
       );
 
@@ -144,6 +153,46 @@ export class MonitorQueue {
         // Continue to next attempt
       }
     }
+  }
+
+  /**
+   * Drop finished jobs older than the retention window.
+   *
+   * `removeOnFail`/`removeOnComplete` only apply to jobs created after this
+   * change, so the pre-existing backlog needs sweeping explicitly. Safe to
+   * call repeatedly: it removes only terminal jobs (failed/completed), never
+   * waiting, active or delayed ones.
+   *
+   * @returns the number of jobs removed, by state
+   */
+  async cleanFinishedJobs(
+    graceMs: number = JOB_RETENTION.removeOnFail.age * 1000,
+    limit = 5000
+  ): Promise<{ failed: number; completed: number }> {
+    const removed = { failed: 0, completed: 0 };
+
+    try {
+      removed.failed = (await this.queue.clean(graceMs, limit, 'failed')).length;
+    } catch (error) {
+      console.error('Error cleaning failed jobs:', error);
+    }
+
+    try {
+      const completedGrace = JOB_RETENTION.removeOnComplete.age * 1000;
+      removed.completed = (
+        await this.queue.clean(completedGrace, limit, 'completed')
+      ).length;
+    } catch (error) {
+      console.error('Error cleaning completed jobs:', error);
+    }
+
+    if (removed.failed || removed.completed) {
+      console.log(
+        `Queue cleanup: removed ${removed.failed} failed, ${removed.completed} completed jobs`
+      );
+    }
+
+    return removed;
   }
 
   /**
