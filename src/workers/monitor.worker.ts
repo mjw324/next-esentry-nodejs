@@ -46,8 +46,21 @@ export class MonitorWorker {
   private async processJob(job: Job): Promise<void> {
     const { monitorId } = job.data;
 
+    // Only the columns this job actually uses. The default selection pulled
+    // every column, including four Postgres text arrays, on every run.
     const monitor = await prisma.monitor.findUnique({
-      where: { id: monitorId }
+      where: { id: monitorId },
+      select: {
+        userId: true,
+        status: true,
+        interval: true,
+        keywords: true,
+        excludedKeywords: true,
+        minPrice: true,
+        maxPrice: true,
+        conditions: true,
+        sellers: true,
+      },
     });
 
     if (!monitor) {

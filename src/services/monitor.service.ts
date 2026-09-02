@@ -492,12 +492,13 @@ export class MonitorService {
    * @param userId The ID of the user who owns the monitor
    */
   async deleteMonitor(monitorId: string, userId: string) {
-    // Verify the monitor exists and belongs to the user
+    // Ownership check only: no column but the id is read.
     const monitor = await prisma.monitor.findFirst({
       where: {
         id: monitorId,
         userId,
       },
+      select: { id: true },
     });
 
     if (!monitor) {
