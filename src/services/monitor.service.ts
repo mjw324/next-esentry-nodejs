@@ -3,14 +3,28 @@ import { CreateMonitorDTO, MonitorResponse } from '../types/monitor.types';
 import { RateLimitService } from './ratelimit.service';
 import { MonitorQueue } from '../queues/monitor.queue';
 import { CacheService } from './cache.service';
+import { BackoffService } from './backoff.service';
 import { RateLimitError } from '../utils/errors';
 
 export class MonitorService {
   constructor(
     private rateLimitService: RateLimitService,
     private monitorQueue: MonitorQueue,
-    private cacheService: CacheService
+    private cacheService: CacheService,
+    private backoffService: BackoffService
   ) {}
+
+  /**
+   * Forget a monitor's cached snapshot and its empty-run backoff together.
+   * They are always invalidated for the same reasons: the monitor stopped, was
+   * deleted, or its search terms changed, any of which makes both stale.
+   */
+  private async resetMonitorState(monitorId: string): Promise<void> {
+    await Promise.all([
+      this.cacheService.clearResults(monitorId),
+      this.backoffService.reset(monitorId),
+    ]);
+  }
 
   /**
    * Initialize job schedulers for all active monitors
@@ -38,6 +52,9 @@ export class MonitorService {
 
       for (const monitor of activeMonitors) {
         try {
+          // Only the snapshot is dropped here, not the backoff state: a deploy
+          // says nothing about whether a monitor's query is productive, and
+          // resetting it would send every barren monitor back to full rate.
           await this.cacheService.clearResults(monitor.id);
           await this.monitorQueue.addMonitorJob(monitor.id, monitor.interval);
           console.log(
@@ -308,7 +325,7 @@ export class MonitorService {
     if (!active) {
       console.log('removing monitor job and clearing cache');
       await this.monitorQueue.removeMonitorJob(monitorId);
-      await this.cacheService.clearResults(monitorId);
+      await this.resetMonitorState(monitorId);
     }
 
     // Update monitor status
@@ -430,7 +447,7 @@ export class MonitorService {
         );
       } else {
         await this.monitorQueue.removeMonitorJob(monitorId);
-        await this.cacheService.clearResults(monitorId);
+        await this.resetMonitorState(monitorId);
       }
     }
 
@@ -476,7 +493,7 @@ export class MonitorService {
     }
 
     await this.monitorQueue.removeMonitorJob(monitorId);
-    await this.cacheService.clearResults(monitorId);
+    await this.resetMonitorState(monitorId);
 
     // Delete the monitor
     await prisma.monitor.delete({
@@ -535,7 +552,7 @@ export class MonitorService {
 
     // Deactivate the monitor
     await this.monitorQueue.removeMonitorJob(monitorId);
-    await this.cacheService.clearResults(monitorId);
+    await this.resetMonitorState(monitorId);
 
     await prisma.monitor.update({
       where: { id: monitorId },
