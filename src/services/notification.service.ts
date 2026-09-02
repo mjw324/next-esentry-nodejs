@@ -84,6 +84,15 @@ export class NotificationService {
           payload.monitorId
         );
 
+        // Count the notification against this monitor only. This used to be an
+        // updateMany across every monitor the user owned, inside the rate-limit
+        // check -- which is why production shows near-identical counts (992,
+        // 992, 992, 1100, ...) on monitors that ran at different times.
+        await prisma.monitor.update({
+          where: { id: monitor.id },
+          data: { notificationCount: { increment: 1 } },
+        });
+
         logger.info('notification.sent', {
           monitorId: monitor.id,
           items: (payload.data.newItems as EbayItem[])?.length ?? 0,

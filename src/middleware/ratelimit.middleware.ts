@@ -17,10 +17,13 @@ export function createRateLimitMiddleware(redis: Redis) {
       const isAllowed = await rateLimitService.checkApiRateLimit(userId);
 
       if (!isAllowed) {
+        // Must return: without it next() ran the handler anyway, which then
+        // tried to respond a second time (ERR_HTTP_HEADERS_SENT).
         res.status(429).json({
           error: 'Rate limit exceeded',
           message: 'You have exceeded your hourly API call limit. Please try again later.'
         });
+        return;
       }
 
       next();
