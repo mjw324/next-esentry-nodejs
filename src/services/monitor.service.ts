@@ -23,6 +23,10 @@ export class MonitorService {
       // First, clean up any orphaned job schedulers from deleted monitors
       await this.cleanupOrphanedJobSchedulers();
 
+      // Sweep the finished-job backlog. Retention options only bound jobs
+      // created after they were introduced, so the existing pile needs this.
+      await this.monitorQueue.cleanFinishedJobs();
+
       const activeMonitors = await prisma.monitor.findMany({
         where: { status: 'active' },
         select: { id: true, interval: true },
