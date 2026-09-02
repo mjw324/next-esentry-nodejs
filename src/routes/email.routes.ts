@@ -1,67 +1,38 @@
 import { Router } from 'express';
 import { EmailController } from '../controllers/email.controller';
-import { EmailService } from '../services/email.service';
-import { VerificationService } from '../services/verification.service';
 import { authMiddleware } from '../middleware/auth.middleware';
-import { validateEmailSetup, validateOtpBody } from '../middleware/validation/email.validation';
-import { createRateLimitMiddleware } from '../middleware/ratelimit.middleware';
-import { Redis } from 'ioredis';
-import { redisConfig } from '../config/redis.config';
-
-const router = Router();
-
-const redis = new Redis(redisConfig);
-
-const rateLimitMiddleware = createRateLimitMiddleware(redis);
-const emailService = new EmailService();
-const verificationService = new VerificationService();
-const emailController = new EmailController(emailService, verificationService);
-
-// Public route for token verification (no auth required)
-router.post(
-  '/verify-token',
-  rateLimitMiddleware,
-  emailController.verifyToken
-);
-
-router.use(authMiddleware, rateLimitMiddleware);
-
-router.get(
-  '/',
-  emailController.getUserEmails
-);
-
-router.post(
-  '/',
+import {
   validateEmailSetup,
-  emailController.addAlertEmail
-);
-
-router.put(
-  '/:emailId/set-active',
-  emailController.setEmailActive
-);
-
-router.delete(
-  '/:emailId',
-  emailController.deleteAlertEmail
-);
-
-router.post(
-  '/:emailId/verify',
   validateOtpBody,
-  emailController.verifyEmailById
-);
+} from '../middleware/validation/email.validation';
+import { AppContainer } from '../container';
 
-router.post(
-  '/:emailId/resend-code',
-  emailController.resendVerificationCode
-);
+export function createEmailRouter(c: AppContainer): Router {
+  const router = Router();
 
-router.get(
-  '/:emailId/status',
-  emailController.getEmailStatus
-);
+  const emailController = new EmailController(
+    c.emailService,
+    c.verificationService
+  );
 
+  // Public route for token verification (no auth required)
+  router.post('/verify-token', c.rateLimitMiddleware, emailController.verifyToken);
 
-export default router;
+  router.use(authMiddleware, c.rateLimitMiddleware);
+
+  router.get('/', emailController.getUserEmails);
+
+  router.post('/', validateEmailSetup, emailController.addAlertEmail);
+
+  router.put('/:emailId/set-active', emailController.setEmailActive);
+
+  router.delete('/:emailId', emailController.deleteAlertEmail);
+
+  router.post('/:emailId/verify', validateOtpBody, emailController.verifyEmailById);
+
+  router.post('/:emailId/resend-code', emailController.resendVerificationCode);
+
+  router.get('/:emailId/status', emailController.getEmailStatus);
+
+  return router;
+}
