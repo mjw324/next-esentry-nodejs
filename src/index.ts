@@ -20,6 +20,7 @@ import { ComparisonService } from './services/comparison.service';
 import { MonitorWorker } from './workers/monitor.worker';
 import { MonitorService } from './services/monitor.service';
 import { MonitorQueue } from './queues/monitor.queue';
+import { BackoffService } from './services/backoff.service';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -165,6 +166,7 @@ async function initialize() {
     const ebayAuthService = new EbayAuthService(redis);
     const ebayService = new EbayService(ebayAuthService, redis);
     const cacheService = new CacheService(redis);
+    const backoffService = new BackoffService(redis);
     const emailService = new EmailService();
     const verificationService = new VerificationService();
     const notificationService = new NotificationService(
@@ -180,7 +182,8 @@ async function initialize() {
     const monitorWorker = new MonitorWorker(
       ebayService,
       cacheService,
-      comparisonService
+      comparisonService,
+      backoffService
     );
 
     // Initialize monitor service and queue
@@ -188,7 +191,8 @@ async function initialize() {
     const monitorService = new MonitorService(
       rateLimitService,
       monitorQueue,
-      cacheService
+      cacheService,
+      backoffService
     );
 
     console.log('All services initialized');
