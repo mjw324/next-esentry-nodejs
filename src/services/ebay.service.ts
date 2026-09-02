@@ -1,5 +1,6 @@
 // src/services/ebay.service.ts
 import axios from 'axios';
+import { createHash } from 'crypto';
 import { Redis } from 'ioredis';
 import { ebayConfig } from '../config/ebay.config';
 import { EbaySearchParams, EbaySearchResults, EbayItem } from '../types/ebay.types';
@@ -38,6 +39,20 @@ export interface SearchMarketOptions {
  */
 const EBAY_REQUEST_TIMEOUT_MS = 10_000;
 
+/**
+ * How long an identical monitoring search is reused.
+ *
+ * Two monitors with the same keywords and filters issue two identical Browse
+ * calls. BullMQ aligns `every: N` schedules to epoch multiples, so monitors
+ * sharing an interval fire in the same instant -- which makes the collision
+ * likely rather than incidental. Each monitor still diffs against its own
+ * snapshot; only the upstream call is shared, so behaviour is unchanged.
+ *
+ * Kept well below the 5-minute minimum interval so a monitor never sees the
+ * same response twice in consecutive runs.
+ */
+const SEARCH_CACHE_TTL_SECONDS = 60;
+
 export class EbayService {
   // Shared application-level Browse quota counter (eBay default ~5,000/day, app
   // level — NOT per user). Soft cap leaves headroom below the real ceiling.
@@ -49,16 +64,51 @@ export class EbayService {
 
   constructor(private authService: EbayAuthService, private redis: Redis) { }
 
+  /**
+   * Stable cache key for a monitoring search. Arrays are lowercased, trimmed
+   * and sorted so semantically identical parameter sets collapse together, then
+   * hashed to keep the key short regardless of how many keywords there are.
+   */
+  private searchCacheKey(params: EbaySearchParams): string {
+    const normalize = (values: string[] | undefined) =>
+      [...(values ?? [])].map((v) => v.toLowerCase().trim()).filter(Boolean).sort();
+
+    const canonical = JSON.stringify({
+      keywords: normalize(params.keywords),
+      excludedKeywords: normalize(params.excludedKeywords),
+      minPrice: params.minPrice ?? null,
+      maxPrice: params.maxPrice ?? null,
+      conditions: normalize(params.conditions),
+      sellers: normalize(params.sellers),
+    });
+
+    return `ebay:search:${createHash('sha1').update(canonical).digest('base64url')}`;
+  }
+
   async searchItems(params: EbaySearchParams): Promise<EbaySearchResults> {
+    const cacheKey = this.searchCacheKey(params);
+
+    // Reuse an identical search issued moments ago by another monitor.
+    try {
+      const cached = await this.redis.get(cacheKey);
+      if (cached) {
+        logger.debug('ebay.search.cache_hit', { keywords: params.keywords.length });
+        return JSON.parse(cached) as EbaySearchResults;
+      }
+    } catch (error) {
+      // A cache miss and a broken cache are the same thing here: call eBay.
+      logger.error('ebay.search.cache_read_failed', { error });
+    }
+
     try {
       const accessToken = await this.authService.getAccessToken();
-  
+
       // Build query string
       const q = params.keywords.join(' ');
-  
+
       // Build filter string
       const filter = this.buildFilterString(params);
-  
+
       const response = await axios.get<EbaySearchResults>(
         `${ebayConfig.apiUrl}/item_summary/search`,
         {
@@ -84,20 +134,22 @@ export class EbayService {
 
       this.logApiResponseSummary(response.data, params);
 
-      if (response.data.total === 0) {
-        return response.data;
-      }
-  
-      // Filter out items with excluded keywords
-      const filteredItems = this.filterExcludedKeywords(
-        response.data.itemSummaries,
-        params.excludedKeywords
-      );
-  
-      return {
-        ...response.data,
-        itemSummaries: filteredItems
-      };
+      // Excluded keywords are part of the cache key, so the post-filter result
+      // is what gets shared.
+      const result: EbaySearchResults =
+        response.data.total === 0
+          ? response.data
+          : {
+              ...response.data,
+              itemSummaries: this.filterExcludedKeywords(
+                response.data.itemSummaries,
+                params.excludedKeywords
+              ),
+            };
+
+      await this.cacheSearchResult(cacheKey, result);
+
+      return result;
     } catch (error) {
       // Log only status + body. The raw axios error carries config.headers,
       // which includes the bearer token.
@@ -197,6 +249,20 @@ export class EbayService {
       throw new RateLimitError(
         `eBay API daily quota nearly exhausted (${used}/${softCap}). Try again later.`
       );
+    }
+  }
+
+  /** Store a search result for reuse. Non-throwing -- caching is best effort. */
+  private async cacheSearchResult(key: string, result: EbaySearchResults): Promise<void> {
+    try {
+      await this.redis.set(
+        key,
+        JSON.stringify(result),
+        'EX',
+        SEARCH_CACHE_TTL_SECONDS
+      );
+    } catch (error) {
+      logger.error('ebay.search.cache_write_failed', { error });
     }
   }
 
