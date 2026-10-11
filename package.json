@@ -43,6 +43,7 @@
     "eslint": "^9.21.0",
     "prettier": "^3.5.2",
     "prisma": "^6.16.2",
+    "railway": "3.13.1",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.7.3"
