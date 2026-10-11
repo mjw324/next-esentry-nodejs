@@ -261,6 +261,11 @@ export class MonitorService {
 
     const hasActiveEmail = !!activeEmail;
 
+    // Backoff only applies to active monitors (deactivating resets it).
+    const backoff = await this.backoffService.getSummaries(
+      monitors.filter((m: any) => m.status === 'active')
+    );
+
     // Return both monitors and hasActiveEmail flag
     return {
       monitors: monitors.map(
@@ -278,6 +283,15 @@ export class MonitorService {
           nextCheckAt: monitor.nextCheckAt ?? undefined,
           lastCheckTime: monitor.lastCheckTime ?? undefined,
           lastResultCount: monitor.lastResultCount,
+          effectiveIntervalMs:
+            backoff.get(monitor.id)?.effectiveIntervalMs ?? monitor.interval,
+          ...(backoff.has(monitor.id) && {
+            backoff: {
+              emptyStreak: backoff.get(monitor.id)!.emptyStreak,
+              factor: backoff.get(monitor.id)!.factor,
+              nextCheckAfter: backoff.get(monitor.id)!.nextCheckAfter,
+            },
+          }),
         })
       ),
       hasActiveEmail,

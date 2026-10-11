@@ -39,6 +39,15 @@ export interface BackoffState {
   nextEligibleAt: number;
 }
 
+/** What a monitor's backoff means for its user (GET /api/monitors, R-4). */
+export interface BackoffSummary {
+  emptyStreak: number;
+  factor: number;
+  effectiveIntervalMs: number;
+  /** Runs before this skip the eBay call. */
+  nextCheckAfter: Date;
+}
+
 export class BackoffService {
   private readonly PREFIX = 'monitor:backoff:';
 
@@ -56,6 +65,42 @@ export class BackoffService {
     if (emptyStreak < EMPTY_RUNS_PER_STEP) return 1;
     const steps = Math.floor(emptyStreak / EMPTY_RUNS_PER_STEP);
     return Math.min(2 ** steps, MAX_FACTOR);
+  }
+
+  /** The interval a monitor is effectively checked at, given its factor. */
+  static effectiveInterval(intervalMs: number, factor: number): number {
+    return factor > 1 ? Math.min(intervalMs * factor, MAX_EFFECTIVE_INTERVAL_MS) : intervalMs;
+  }
+
+  /**
+   * Backoff summaries for the monitors that are backed off (factor > 1),
+   * keyed by monitor id. One pipelined read for the whole list; a failure
+   * returns no summaries (the list still renders, without backoff info).
+   */
+  async getSummaries(
+    monitors: { id: string; interval: number }[]
+  ): Promise<Map<string, BackoffSummary>> {
+    const summaries = new Map<string, BackoffSummary>();
+    try {
+      const states = await Promise.all(
+        monitors.map((m) => this.redis.hmget(this.key(m.id), 'emptyStreak', 'nextEligibleAt'))
+      );
+      monitors.forEach((m, i) => {
+        const [streak, next] = states[i];
+        const emptyStreak = Number(streak ?? 0);
+        const factor = BackoffService.factorFor(emptyStreak);
+        if (factor <= 1) return;
+        summaries.set(m.id, {
+          emptyStreak,
+          factor,
+          effectiveIntervalMs: BackoffService.effectiveInterval(m.interval, factor),
+          nextCheckAfter: new Date(Number(next ?? 0)),
+        });
+      });
+    } catch (error) {
+      logger.error('backoff.summary_failed', { error });
+    }
+    return summaries;
   }
 
   /**
@@ -101,10 +146,7 @@ export class BackoffService {
       const emptyStreak = await this.redis.hincrby(key, 'emptyStreak', 1);
       const factor = BackoffService.factorFor(emptyStreak);
 
-      const effectiveInterval = Math.min(
-        intervalMs * factor,
-        MAX_EFFECTIVE_INTERVAL_MS
-      );
+      const effectiveInterval = BackoffService.effectiveInterval(intervalMs, factor);
       const nextEligibleAt =
         startedAt + effectiveInterval - intervalMs * BOUNDARY_SLACK_FRACTION;
 

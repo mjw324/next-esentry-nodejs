@@ -30,4 +30,15 @@ export interface MonitorResponse {
   nextCheckAt?: Date;
   lastCheckTime?: Date;
   lastResultCount: number;
+  /**
+   * How often the monitor is actually checked: `interval`, or longer while it
+   * is backed off for returning nothing (R-4).
+   */
+  effectiveIntervalMs?: number;
+  /** Present while the monitor is backed off. */
+  backoff?: {
+    emptyStreak: number;
+    factor: number;
+    nextCheckAfter: Date;
+  };
 }
