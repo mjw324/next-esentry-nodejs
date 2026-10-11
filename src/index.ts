@@ -302,7 +302,15 @@ async function initialize() {
 
     app.use(errorHandler);
 
-    app.listen(port, () => {
+    // Express 5 calls this back with the error when the bind fails (e.g.
+    // EADDRINUSE) instead of throwing. Ignoring it left a process with no HTTP
+    // server running the worker and the boot reconciliation (R-10).
+    app.listen(port, (error?: Error) => {
+      if (error) {
+        console.error(`Failed to listen on port ${port}:`, error.message);
+        process.exit(1);
+      }
+
       console.log('=== Server Started ===');
       console.log(`Listening on port ${port}`);
       console.log(`Environment: ${process.env.NODE_ENV}`);
