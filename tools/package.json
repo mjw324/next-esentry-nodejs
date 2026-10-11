@@ -1,0 +1,11 @@
+{
+  "name": "esentry-harness-tools",
+  "private": true,
+  "type": "module",
+  "description": "Inspection and scenario tools for the local eSentry harness",
+  "dependencies": {
+    "bullmq": "5.41.5",
+    "ioredis": "5.5.0",
+    "pg": "8.13.3"
+  }
+}
