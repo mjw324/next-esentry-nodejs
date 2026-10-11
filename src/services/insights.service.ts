@@ -166,10 +166,19 @@ export class InsightsService {
    * cache from Phase 1, so this is at most 3 calls (often fewer when warm).
    */
   private async gatherSample(params: EbaySearchParams): Promise<{ items: EbayItem[]; total: number }> {
-    // Reserve the whole fan-out up front. The three calls below run
-    // concurrently and each used to assert quota for 1, so near the soft cap
-    // all three passed the gate independently and overshot it.
-    await this.ebayService.assertQuota(3);
+    // Check the quota for the whole fan-out up front. The three calls below
+    // run concurrently and each used to assert quota for 1, so near the soft
+    // cap all three passed the gate independently and overshot it. Count only
+    // the samples that are not cached: asserting 3 regardless refused fully
+    // cached requests near the cap, which cost no eBay calls at all (R-7).
+    const misses = (
+      await Promise.all(
+        (['snapshot-raw', 'asc-raw', 'desc-raw'] as const).map((namespace) =>
+          this.cacheService.has(this.cacheService.buildInsightsKey(namespace, params))
+        )
+      )
+    ).filter((cached) => !cached).length;
+    if (misses > 0) await this.ebayService.assertQuota(misses);
 
     const [snapshot, asc, desc] = await Promise.all([
       this.getSnapshotRaw(params),

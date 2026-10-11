@@ -45,6 +45,10 @@ export class CacheService {
         return value ? (JSON.parse(value) as T) : null;
     }
 
+    async has(key: string): Promise<boolean> {
+        return (await this.redis.exists(key)) === 1;
+    }
+
     async setJSON(key: string, value: unknown, ttlSeconds: number): Promise<void> {
         await this.redis.set(key, JSON.stringify(value), 'EX', ttlSeconds);
     }
