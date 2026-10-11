@@ -1,13 +1,23 @@
 # syntax=docker/dockerfile:1
 
+# pnpm is pinned. An unpinned `npm install -g pnpm` now resolves to pnpm 12,
+# whose frozen install exits 1 on the dependency build scripts it skips
+# (ERR_PNPM_IGNORED_BUILDS: @prisma/client, @prisma/engines, msgpackr-extract,
+# prisma), so every build failed. pnpm-lock.yaml is lockfileVersion 9.0, which
+# pnpm 9 and 10 read; 10.x installs it with a warning and exit 0. Bump this and
+# the lockfile together.
+ARG PNPM_VERSION=10.34.6
+
 # ---------------------------------------------------------------------------
 # Stage 1: dependencies (full, including devDependencies) + Prisma client
 # ---------------------------------------------------------------------------
 FROM node:20-alpine AS deps
 
+ARG PNPM_VERSION
+
 WORKDIR /app
 
-RUN npm install -g pnpm
+RUN npm install -g pnpm@${PNPM_VERSION}
 
 COPY package.json pnpm-lock.yaml ./
 
@@ -20,9 +30,11 @@ RUN pnpm install --frozen-lockfile
 # ---------------------------------------------------------------------------
 FROM node:20-alpine AS build
 
+ARG PNPM_VERSION
+
 WORKDIR /app
 
-RUN npm install -g pnpm
+RUN npm install -g pnpm@${PNPM_VERSION}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json pnpm-lock.yaml tsconfig.json ./
@@ -36,11 +48,13 @@ RUN pnpm build
 # ---------------------------------------------------------------------------
 FROM node:20-alpine AS runtime
 
+ARG PNPM_VERSION
+
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-RUN npm install -g pnpm
+RUN npm install -g pnpm@${PNPM_VERSION}
 
 COPY package.json pnpm-lock.yaml ./
 
