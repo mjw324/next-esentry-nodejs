@@ -3,8 +3,10 @@ import { z } from 'zod';
 export const createMonitorSchema = z.object({
   keywords: z.array(z.string()).min(1),
   excludedKeywords: z.array(z.string()).optional(),
-  minPrice: z.number().min(0).optional(),
-  maxPrice: z.number().min(0).optional(),
+  // nullish: API clients send null for "no price"; the column is nullable and
+  // PATCH already stores null as "no bound". Same as the insights schema (R-8).
+  minPrice: z.number().min(0).nullish(),
+  maxPrice: z.number().min(0).nullish(),
   conditions: z.array(z.enum(['NEW', 'USED'])).optional(),
   sellers: z.array(z.string()).optional(),
   interval: z.number().min(60000).optional(), // Minimum 1 minute in milliseconds
