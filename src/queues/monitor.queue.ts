@@ -93,15 +93,34 @@ export class MonitorQueue {
       // on every call and briefly left the monitor unscheduled.
 
       // Use upsertJobScheduler to create or update the job scheduler
-      const firstJob = await this.queue.upsertJobScheduler(
-        schedulerId,
-        { every: interval, offset: schedulerOffset(monitorId, interval) },
-        {
-          name: schedulerId,
-          data: { monitorId },
-          opts: { ...JOB_OPTIONS },
+      const upsert = () =>
+        this.queue.upsertJobScheduler(
+          schedulerId,
+          { every: interval, offset: schedulerOffset(monitorId, interval) },
+          {
+            name: schedulerId,
+            data: { monitorId },
+            opts: { ...JOB_OPTIONS },
+          }
+        );
+      let firstJob = await upsert();
+
+      // BullMQ skips a job whose id already exists. Scheduler job ids are the
+      // slot (`repeat:<schedulerId>:<millis>`), and finished jobs are now kept
+      // for a while (JOB_RETENTION), so if the slot's job already ran early (a
+      // manual promote) the upsert stores the scheduler but queues nothing, and
+      // the monitor never runs again (R-21). Drop the finished job and retry;
+      // BullMQ refuses to remove a scheduler's current job, so the scheduler
+      // goes first.
+      if (firstJob?.id) {
+        const state = await this.queue.getJobState(firstJob.id);
+        if (state === 'completed' || state === 'failed') {
+          await this.queue.removeJobScheduler(schedulerId);
+          await this.queue.remove(firstJob.id);
+          firstJob = await upsert();
+          logger.warn('queue.scheduler.slot_reused', { monitorId, jobId: firstJob?.id });
         }
-      );
+      }
 
       if (runNow) {
         await this.queue.add(
