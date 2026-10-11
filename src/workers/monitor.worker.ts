@@ -45,6 +45,7 @@ export class MonitorWorker {
 
   private async processJob(job: Job): Promise<void> {
     const { monitorId } = job.data;
+    const startedAt = Date.now();
 
     // Only the columns this job actually uses. The default selection pulled
     // every column, including four Postgres text arrays, on every run.
@@ -121,7 +122,8 @@ export class MonitorWorker {
       if (transformedResults.items.length === 0) {
         const { emptyStreak, factor } = await this.backoffService.recordEmpty(
           monitorId,
-          monitor.interval
+          monitor.interval,
+          startedAt
         );
         if (factor > 1) {
           logger.info('monitor.backoff', {

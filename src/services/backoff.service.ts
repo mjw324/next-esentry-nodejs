@@ -24,8 +24,13 @@ const EMPTY_RUNS_PER_STEP = 5;
 const MAX_FACTOR = 12;
 /** Nor beyond this absolute gap, however long the base interval is. */
 const MAX_EFFECTIVE_INTERVAL_MS = 24 * 60 * 60 * 1000;
-/** Slack so a factor of 1 never collides with the next scheduled fire. */
-const BOUNDARY_SLACK_MS = 1000;
+/**
+ * Slack, as a fraction of the base interval, so a run that started late
+ * (slow eBay, a retry, a busy worker) does not push the next eligible time
+ * past the next scheduled fire. A fixed 1 s skipped the next run of every
+ * empty monitor whenever a run took more than about a second (R-22).
+ */
+const BOUNDARY_SLACK_FRACTION = 0.5;
 /** Backoff state outlives a long sleep but not an abandoned monitor. */
 const STATE_TTL_SECONDS = 30 * 24 * 60 * 60;
 
@@ -82,11 +87,14 @@ export class BackoffService {
 
   /**
    * Record an empty run and extend the next eligible time.
+   * @param startedAt when the run started; the schedule counts from there,
+   *   not from when the (possibly slow) eBay call came back
    * @returns the new streak and the factor now in force
    */
   async recordEmpty(
     monitorId: string,
-    intervalMs: number
+    intervalMs: number,
+    startedAt: number = Date.now()
   ): Promise<{ emptyStreak: number; factor: number }> {
     try {
       const key = this.key(monitorId);
@@ -97,7 +105,8 @@ export class BackoffService {
         intervalMs * factor,
         MAX_EFFECTIVE_INTERVAL_MS
       );
-      const nextEligibleAt = Date.now() + effectiveInterval - BOUNDARY_SLACK_MS;
+      const nextEligibleAt =
+        startedAt + effectiveInterval - intervalMs * BOUNDARY_SLACK_FRACTION;
 
       await this.redis
         .multi()
