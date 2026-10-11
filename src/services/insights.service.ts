@@ -100,12 +100,12 @@ export class InsightsService {
 
     // Go through getOutliers rather than recomputing: it has its own cache, so
     // a calibrate that follows an outliers call for the same params does no
-    // eBay work and no duplicate token/outlier analysis. Both paths share the
-    // raw-sample caches underneath, keeping a cold calibrate within 3 calls.
-    const [outlier, { items, total }] = await Promise.all([
-      this.getOutliers(params),
-      this.gatherSample(params),
-    ]);
+    // eBay work and no duplicate token/outlier analysis. Sequential on
+    // purpose: run in parallel, both sides missed the raw-sample caches and
+    // fetched the same three samples, so a cold calibrate cost 6 calls (R-6).
+    // After getOutliers, gatherSample is served from those caches.
+    const outlier = await this.getOutliers(params);
+    const { items, total } = await this.gatherSample(params);
 
     const prices = this.pricesOf(items);
     const noiseTerms = outlier.suggestedRefinements.suggestedExcludedKeywords;
