@@ -150,8 +150,17 @@ export class MonitorWorker {
           apiCallCount: { increment: 1 },
         },
       });
+
+      // One line per run. ebay.search can't carry these: searchItems doesn't
+      // know the monitor, and identical searches share one call.
+      logger.info('monitor.run', {
+        monitorId,
+        durationMs: Date.now() - startedAt,
+        results: transformedResults.items.length,
+        baseline: !previousResults,
+      });
     } catch (error) {
-      logger.error('worker.job_error', { monitorId, error });
+      logger.error('worker.job_error', { monitorId, durationMs: Date.now() - startedAt, error });
       throw error;
     }
   }
