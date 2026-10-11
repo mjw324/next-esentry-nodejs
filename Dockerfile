@@ -5,8 +5,8 @@ WORKDIR /app
 # Install required packages
 RUN apk add --no-cache netcat-openbsd dos2unix
 
-# Install pnpm
-RUN npm install -g pnpm
+# Install pnpm (pinned: lockfile v9; pnpm >= 11 fails the frozen install with ERR_PNPM_IGNORED_BUILDS)
+RUN npm install -g pnpm@10.34.6
 
 # Copy package files
 COPY package.json pnpm-lock.yaml ./
