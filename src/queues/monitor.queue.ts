@@ -16,6 +16,19 @@ export const JOB_RETENTION = {
   removeOnFail: { age: 7 * 24 * 3600, count: 200 }, // 7d / 200 jobs
 } as const;
 
+/**
+ * Cap on the queue's events stream. Passed as `streams.events.maxLen` below,
+ * but BullMQ keeps that cap in the queue's shared meta hash, and any process
+ * that opens `monitor-queue` with default options (Bull Board, an ad-hoc
+ * script) rewrites it to 10,000 (R-12). The periodic trim enforces it anyway.
+ */
+const EVENTS_MAX_LEN = 1000;
+
+/** How often finished jobs are swept and the events stream trimmed. */
+const MAINTENANCE_INTERVAL_MS = parseInt(
+  process.env.QUEUE_MAINTENANCE_INTERVAL_MS || String(6 * 60 * 60 * 1000)
+);
+
 const JOB_OPTIONS = {
   ...JOB_RETENTION,
   attempts: 3,
@@ -65,7 +78,7 @@ export class MonitorQueue {
       defaultJobOptions: { ...JOB_OPTIONS },
       // Default is 10,000 events (~1.4MB in production for a queue with two
       // monitors). Nothing consumes this stream, so keep a short tail.
-      streams: { events: { maxLen: 1000 } },
+      streams: { events: { maxLen: EVENTS_MAX_LEN } },
     });
   }
 
@@ -290,6 +303,31 @@ export class MonitorQueue {
     }
 
     return removed;
+  }
+
+  /**
+   * Trim the events stream to EVENTS_MAX_LEN (approximately: BullMQ uses
+   * `XTRIM MAXLEN ~`), whatever cap the queue meta currently holds.
+   */
+  async trimEvents(): Promise<void> {
+    try {
+      await this.queue.trimEvents(EVENTS_MAX_LEN);
+    } catch (error) {
+      logger.error('queue.trim_events_error', { error });
+    }
+  }
+
+  /**
+   * Sweep finished jobs and trim the events stream now and then, not only at
+   * boot. Returns the timer; unref() keeps it from holding the process open.
+   */
+  startPeriodicMaintenance(): NodeJS.Timeout {
+    const timer = setInterval(() => {
+      void this.cleanFinishedJobs().then(() => this.trimEvents());
+    }, MAINTENANCE_INTERVAL_MS);
+
+    timer.unref();
+    return timer;
   }
 
   /**

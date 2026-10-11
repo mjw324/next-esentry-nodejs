@@ -41,6 +41,7 @@ export class MonitorService {
       // Sweep the finished-job backlog. Retention options only bound jobs
       // created after they were introduced, so the existing pile needs this.
       await this.monitorQueue.cleanFinishedJobs();
+      await this.monitorQueue.trimEvents();
 
       const activeMonitors = await prisma.monitor.findMany({
         where: { status: 'active' },

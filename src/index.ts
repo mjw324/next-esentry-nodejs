@@ -328,6 +328,9 @@ async function initialize() {
 
       // Daily sweep of expired sessions and verification tokens.
       container.cleanupService.start();
+
+      // Finished-job sweep and events-stream trim (R-12); boot does one too.
+      container.monitorQueue.startPeriodicMaintenance();
     });
   } catch (error) {
     console.error('=== Initialization Failed ===');
