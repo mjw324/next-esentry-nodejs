@@ -459,6 +459,24 @@ export class MonitorService {
     // the slot after "now" and can drop the pending one (R-18).
     const intervalChanged =
       finalStatus === 'active' && !activating && finalInterval !== monitor.interval;
+    // Any change to what is searched makes the snapshot and the backoff state
+    // describe a different query (R-15, R-16).
+    const searchFields = [
+      'keywords',
+      'excludedKeywords',
+      'minPrice',
+      'maxPrice',
+      'conditions',
+      'sellers',
+    ] as const;
+    const searchChanged =
+      finalStatus === 'active' &&
+      !activating &&
+      searchFields.some(
+        (field) =>
+          updates[field] !== undefined &&
+          JSON.stringify(updates[field] ?? null) !== JSON.stringify(monitor[field] ?? null)
+      );
 
     if (updates.status === 'inactive') {
       await this.monitorQueue.removeMonitorJob(monitorId);
@@ -476,9 +494,18 @@ export class MonitorService {
     // the update and re-read the pre-update interval.)
     if (activating) {
       await this.monitorQueue.addMonitorJob(monitorId, finalInterval, { runNow: true });
-    } else if (intervalChanged) {
+    } else if (intervalChanged || searchChanged) {
+      if (searchChanged) {
+        // Forget the old query's snapshot and backoff, then take the new
+        // query's baseline now. Keeping them meant the next run either emailed
+        // every current listing of the new query as "new" (R-16) or, when the
+        // old query was backed off, did not run for up to 24 h (R-15).
+        await this.resetMonitorState(monitorId);
+      }
       await this.monitorQueue.removeMonitorJob(monitorId);
-      await this.monitorQueue.addMonitorJob(monitorId, finalInterval);
+      await this.monitorQueue.addMonitorJob(monitorId, finalInterval, {
+        runNow: searchChanged,
+      });
     }
 
     // Return the updated monitor
