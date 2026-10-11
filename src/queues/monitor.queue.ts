@@ -37,12 +37,24 @@ const JOB_OPTIONS = {
  * A stable per-monitor offset derived from its id keeps each monitor's own
  * cadence exact while decorrelating it from its neighbours. Deterministic, so
  * a restart or reschedule does not move a monitor to a different slot.
+ *
+ * With an offset, BullMQ schedules the first job at the next slot plus the
+ * offset, 0-2 intervals away, instead of immediately. Activation therefore
+ * queues its own immediate run (see addMonitorJob's `runNow`).
  */
 function schedulerOffset(monitorId: string, interval: number): number {
   const digest = createHash('sha1').update(monitorId).digest();
   // 32 bits of the digest is ample spread and stays well inside Number range.
   return digest.readUInt32BE(0) % Math.max(interval, 1);
 }
+
+/**
+ * Id prefix for the one-off run queued on activation. Scheduler jobs are
+ * `repeat:<schedulerId>:<millis>`; these are `now:<schedulerId>:<millis>`, so
+ * they never collide with a scheduler slot (or with a retained completed job
+ * of the same slot, which BullMQ would treat as a duplicate and drop).
+ */
+const RUN_NOW_PREFIX = 'now:';
 
 export class MonitorQueue {
   private queue: Queue;
@@ -57,9 +69,19 @@ export class MonitorQueue {
     });
   }
 
+  /**
+   * Create or replace the monitor's scheduler.
+   *
+   * @param runNow also queue one immediate run. Activation needs it: the
+   *   scheduler's first slot is up to two intervals away, and the first run is
+   *   the baseline every later run is diffed against, so without it listings
+   *   posted in that gap were never reported (R-1). Boot reconciliation passes
+   *   false so a restart does not fire every monitor at once.
+   */
   async addMonitorJob(
     monitorId: string,
-    interval: number = parseInt(process.env.MONITOR_INTERVAL || '7200000')
+    interval: number = parseInt(process.env.MONITOR_INTERVAL || '7200000'),
+    { runNow = false }: { runNow?: boolean } = {}
   ) {
     try {
       // Create a scheduler ID that's consistent and unique for this monitor
@@ -81,12 +103,38 @@ export class MonitorQueue {
         }
       );
 
-      logger.debug('queue.scheduler.upserted', { monitorId, interval });
+      if (runNow) {
+        await this.queue.add(
+          schedulerId,
+          { monitorId },
+          { ...JOB_OPTIONS, jobId: `${RUN_NOW_PREFIX}${schedulerId}:${Date.now()}` }
+        );
+      }
+
+      logger.debug('queue.scheduler.upserted', { monitorId, interval, runNow });
       return firstJob;
     } catch (error) {
       logger.error('queue.scheduler.upsert_failed', { monitorId, error });
       throw error;
     }
+  }
+
+  /**
+   * Whether the monitor already has a scheduler with this interval and its
+   * next run is still queued. Boot reconciliation leaves such a monitor alone:
+   * re-upserting recomputes the next slot from "now" and, when the current
+   * slot has started but its offset has not elapsed, drops the pending run
+   * (R-18).
+   */
+  async isScheduled(monitorId: string, interval: number): Promise<boolean> {
+    const schedulerId = `monitor:${monitorId}`;
+    const scheduler = await this.queue.getJobScheduler(schedulerId);
+    if (!scheduler?.next || Number(scheduler.every) !== interval) return false;
+
+    const next = await this.queue.getJob(`repeat:${schedulerId}:${scheduler.next}`);
+    if (!next) return false;
+    const state = await next.getState();
+    return ['delayed', 'waiting', 'active', 'prioritized'].includes(state);
   }
 
   async removeMonitorJob(monitorId: string) {
@@ -129,14 +177,15 @@ export class MonitorQueue {
    * `removeJobScheduler` already deletes the scheduler's next delayed job
    * atomically in Lua, so the only job that can remain is one already promoted
    * to waiting/active. Those are found by id prefix instead of by scanning:
-   * BullMQ names scheduler jobs `repeat:<schedulerId>:<millis>`.
+   * BullMQ names scheduler jobs `repeat:<schedulerId>:<millis>`; activation
+   * runs are `now:<schedulerId>:<millis>`.
    */
   private async removePendingJobsWithRetry(
     monitorId: string,
     schedulerId: string,
     maxRetries: number = 3
   ) {
-    const prefix = `repeat:${schedulerId}:`;
+    const prefixes = [`repeat:${schedulerId}:`, `${RUN_NOW_PREFIX}${schedulerId}:`];
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       let allClear = true;
@@ -148,7 +197,8 @@ export class MonitorQueue {
       ]);
 
       const candidates = [...waiting, ...active].filter(
-        (id): id is string => typeof id === 'string' && id.startsWith(prefix)
+        (id): id is string =>
+          typeof id === 'string' && prefixes.some((prefix) => id.startsWith(prefix))
       );
 
       for (const jobId of candidates) {

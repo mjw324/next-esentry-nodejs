@@ -57,6 +57,7 @@ export class MonitorService {
       // trips, and this runs before the server accepts traffic.
       const CONCURRENCY = 10;
       let initialized = 0;
+      let kept = 0;
       let failed = 0;
 
       for (let i = 0; i < activeMonitors.length; i += CONCURRENCY) {
@@ -65,11 +66,16 @@ export class MonitorService {
         await Promise.all(
           batch.map(async (monitor) => {
             try {
-              // Only the snapshot is dropped here, not the backoff state: a
-              // deploy says nothing about whether a monitor's query is
-              // productive, and resetting it would send every barren monitor
-              // back to full rate.
-              await this.cacheService.clearResults(monitor.id);
+              // A monitor whose scheduler survived the restart is left alone,
+              // snapshot included. Re-upserting it moved its next run to the
+              // slot after "now", dropping the pending run whenever the boot
+              // fell between a slot and its offset (R-18), and clearing the
+              // snapshot turned the next run into a silent baseline, so a
+              // deploy cost every monitor up to two intervals of listings.
+              if (await this.monitorQueue.isScheduled(monitor.id, monitor.interval)) {
+                kept++;
+                return;
+              }
               await this.monitorQueue.addMonitorJob(monitor.id, monitor.interval);
               initialized++;
             } catch (error) {
@@ -80,7 +86,7 @@ export class MonitorService {
         );
       }
 
-      logger.info('monitor.init_complete', { initialized, failed });
+      logger.info('monitor.init_complete', { initialized, kept, failed });
     } catch (error) {
       console.error('Error during monitor initialization:', error);
     }
@@ -349,9 +355,13 @@ export class MonitorService {
       },
     });
 
-    // If activating, add the job scheduler after the monitor is updated
+    // If activating, add the job scheduler after the monitor is updated, plus
+    // an immediate run so the baseline is taken now rather than at the
+    // scheduler's first slot.
     if (active) {
-      await this.monitorQueue.addMonitorJob(monitorId, updatedMonitor.interval);
+      await this.monitorQueue.addMonitorJob(monitorId, updatedMonitor.interval, {
+        runNow: true,
+      });
     }
 
     // Return the updated monitor
@@ -435,32 +445,24 @@ export class MonitorService {
     if (updates.conditions !== undefined)
       updateData.conditions = updates.conditions;
     if (updates.sellers !== undefined) updateData.sellers = updates.sellers;
-    if (updates.interval !== undefined) {
-      updateData.interval = updates.interval;
-      // If monitor is active and interval is being changed, update the job scheduler
-      if (monitor.status === 'active') {
-        await this.monitorQueue.removeMonitorJob(monitorId);
-        await this.monitorQueue.addMonitorJob(monitorId, updates.interval);
-      }
-    }
+    if (updates.interval !== undefined) updateData.interval = updates.interval;
     if (updates.status !== undefined) {
       updateData.status = updates.status;
+      if (updates.status === 'active') updateData.nextCheckAt = new Date();
+    }
 
-      if (updates.status === 'active') {
-        updateData.nextCheckAt = new Date();
-        await this.monitorQueue.removeMonitorJob(monitorId);
-        // Get the updated monitor to access the interval
-        const currentMonitor = await prisma.monitor.findUnique({
-          where: { id: monitorId },
-        });
-        await this.monitorQueue.addMonitorJob(
-          monitorId,
-          currentMonitor?.interval || updates.interval
-        );
-      } else {
-        await this.monitorQueue.removeMonitorJob(monitorId);
-        await this.resetMonitorState(monitorId);
-      }
+    const finalStatus = updates.status ?? monitor.status;
+    const finalInterval = updates.interval ?? monitor.interval;
+    const activating = finalStatus === 'active' && monitor.status !== 'active';
+    // The frontend sends `interval` with every save, so compare instead of
+    // rescheduling whenever it is present: a reschedule moves the next run to
+    // the slot after "now" and can drop the pending one (R-18).
+    const intervalChanged =
+      finalStatus === 'active' && !activating && finalInterval !== monitor.interval;
+
+    if (updates.status === 'inactive') {
+      await this.monitorQueue.removeMonitorJob(monitorId);
+      await this.resetMonitorState(monitorId);
     }
 
     // Update the monitor
@@ -468,6 +470,16 @@ export class MonitorService {
       where: { id: monitorId },
       data: updateData,
     });
+
+    // Schedule only after the row is written, so the activation run sees the
+    // monitor as active and with its new interval. (This used to run before
+    // the update and re-read the pre-update interval.)
+    if (activating) {
+      await this.monitorQueue.addMonitorJob(monitorId, finalInterval, { runNow: true });
+    } else if (intervalChanged) {
+      await this.monitorQueue.removeMonitorJob(monitorId);
+      await this.monitorQueue.addMonitorJob(monitorId, finalInterval);
+    }
 
     // Return the updated monitor
     return {
