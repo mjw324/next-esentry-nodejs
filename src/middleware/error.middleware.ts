@@ -44,6 +44,18 @@ export const errorHandler = (
     return;
   }
 
+  // Client errors raised by Express's own middleware carry their status:
+  // body-parser sets 413 for a body over express.json's limit and 400 for
+  // malformed JSON. They were all answered (and logged) as 500s (R-14).
+  const status = (error as { status?: unknown }).status;
+  if (typeof status === 'number' && status >= 400 && status < 500) {
+    res.status(status).json({
+      error: status === 413 ? 'Payload too large' : 'Bad request',
+      message: error.message
+    });
+    return;
+  }
+
   // Default to 500 for unknown errors
   res.status(500).json({
     error: 'Internal server error',
