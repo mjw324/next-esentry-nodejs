@@ -28,7 +28,7 @@ set +a
 export DATABASE_URL="postgresql://harness:harness@127.0.0.1:55432/$DB"
 export BACKEND_API_URL="http://localhost:$BPORT"
 export NEXT_PUBLIC_BACKEND_API_URL="http://localhost:$BPORT"
-export NODE_OPTIONS="--require $(cygpath -m "$HERE/preload/egress.cjs") ${NODE_OPTIONS:-}"
+export NODE_OPTIONS="--require $(command -v cygpath >/dev/null && cygpath -m "$HERE/preload/egress.cjs" || echo "$HERE/preload/egress.cjs") ${NODE_OPTIONS:-}"
 
 cd "$DIR"
 if [ -f .env.local ] || [ -f .env ]; then

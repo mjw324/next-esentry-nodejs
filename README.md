@@ -2,7 +2,7 @@
 
 A way to **run and drive** eSentry (backend `next-esentry-nodejs`, frontend `next-esentry`) on any branch, plus a production lane for checks that only production can answer. Built 2026-10-11 for reviewing the `perf/optimizations` branch and the September audit docs, and reusable after that.
 
-Lives next to the two repos, so it works whichever branch is checked out and adds nothing to either repo.
+Lives next to the two repos, so it works whichever branch is checked out and adds nothing to either repo. It's published as the orphan branch `tooling/e2e-harness` of the backend repo. **New machine? Start with [SETUP.md](SETUP.md).**
 
 ```
 repositories/
@@ -38,7 +38,7 @@ First time only: `bin/worktree.sh perf/optimizations perf` creates the worktree.
 
 **Browser:** the desktop app's built-in browser pane can open `http://localhost:3001`. Register any `@harness.test` address. The verification link shows up in `node tools/fake.mjs last-email --to <addr>` and in the inbox page at `http://127.0.0.1:4010/__control/inbox`. A ready-made verified account is in `env/test-accounts.env` (local only).
 
-**API without the UI:** `node tools/seed.mjs` prints a verified `userId`. Send it as the `user-id` header. That header is the whole authentication model (audit F-1).
+**API without the UI:** `node tools/seed.mjs` prints a verified `userId`. Send it as the `user-id` header. The backend authenticates requests by that header alone.
 
 ## Tools
 

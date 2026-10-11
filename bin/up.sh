@@ -10,9 +10,15 @@ mkdir -p "$HERE/logs"
 "$HERE/bin/services.sh" up
 
 # WSL shuts an idle distro down, taking Postgres/Redis with it. Hold a session.
-MSYS_NO_PATHCONV=1 wsl -d Ubuntu -e sleep infinity &
-KEEPALIVE=$!
-trap 'kill $KEEPALIVE 2>/dev/null || true' EXIT
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if [ -z "${HARNESS_SERVICES:-}" ] || [ "${HARNESS_SERVICES}" = wsl ]; then
+      MSYS_NO_PATHCONV=1 wsl -d "${HARNESS_WSL_DISTRO:-Ubuntu}" -e sleep infinity &
+      KEEPALIVE=$!
+      trap 'kill $KEEPALIVE 2>/dev/null || true' EXIT
+    fi
+    ;;
+esac
 
 # The WSL localhost relay takes a few seconds to pick up new listeners.
 for _ in $(seq 1 30); do

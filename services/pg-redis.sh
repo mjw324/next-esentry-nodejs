@@ -1,13 +1,25 @@
 #!/bin/sh
-# Runs INSIDE WSL Ubuntu (as the normal user). Harness-owned Postgres 16 and
-# Redis 8 instances on non-default ports, with data under ~/.esentry-harness,
-# completely separate from any system-wide postgres/redis service.
+# Harness-owned Postgres 16 and Redis 8 instances on non-default ports, with
+# data under ~/.esentry-harness, separate from any system-wide postgres/redis.
+# Runs as the normal user on Linux, macOS, or inside WSL Ubuntu (bin/services.sh
+# picks where). Override the Postgres binary dir with PGBIN=...
 #
-#   sh wsl-services.sh up|down|status|reset|psql [args]|redis-cli [args]
+#   sh pg-redis.sh up|down|status|reset|createdb <name>|psql [args]|redis-cli [args]
 set -e
 
 ROOT="$HOME/.esentry-harness"
-PGBIN=/usr/lib/postgresql/16/bin
+if [ -z "$PGBIN" ]; then
+  for d in /usr/lib/postgresql/16/bin \
+           /opt/homebrew/opt/postgresql@16/bin \
+           /usr/local/opt/postgresql@16/bin \
+           "$(dirname "$(command -v initdb 2>/dev/null || echo /nonexistent/initdb)")"; do
+    if [ -x "$d/initdb" ]; then PGBIN="$d"; break; fi
+  done
+fi
+if [ -z "$PGBIN" ]; then
+  echo "Postgres 16 binaries not found (initdb). Install postgresql-16 or set PGBIN." >&2
+  exit 1
+fi
 PGDATA="$ROOT/pg"
 PGPORT=55432
 REDISPORT=56379

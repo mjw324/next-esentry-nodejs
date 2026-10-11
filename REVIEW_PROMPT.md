@@ -24,4 +24,6 @@ Review the work recorded on branch `perf/optimizations` of this repo: 18 commits
 2. Market Insights 400s when price is unset (`null` vs `z.number().optional()`). Confirm in production with my session, then propose the fix on the right side (frontend, backend, or both).
 3. First check after activation is delayed by up to interval + offset on perf. Is that a regression from `main`?
 
-**Output:** `docs/REVIEW_2026-10.md` on a new branch off `perf/optimizations`, with a per-commit verdict table (claim → how you tested → evidence → verdict). Include a list of new findings ranked by severity, and the exact commands to reproduce each one. Fixes go in separate commits on that branch, each with the scenario that proves it. Don't push or open a PR until I ask.
+**Public vs private:** the GitHub repos are public, and the audit docs live only in the private bundle (see `SETUP.md` §1). Never push the audit docs, or review text that describes exploitable security issues, to GitHub.
+
+**Output:** `docs/REVIEW_2026-10.md` on a new local branch off `perf/optimizations`, with a per-commit verdict table (claim → how you tested → evidence → verdict). Include a list of new findings ranked by severity, and the exact commands to reproduce each one. Fixes go in separate commits on that branch, each with the scenario that proves it. Don't push or open a PR until I ask.
