@@ -75,8 +75,10 @@ export class MonitorWorker {
     }
 
     // A monitor that keeps coming back empty polls less often. The job still
-    // fires on its configured interval; this skips the eBay call itself.
+    // fires on its configured interval; this skips the eBay call itself, and
+    // refreshes the snapshot's TTL so it outlives the backoff.
     if (await this.backoffService.shouldSkip(monitorId)) {
+      await this.cacheService.touchResults(monitorId);
       logger.debug('worker.skip', { monitorId, reason: 'backoff' });
       return;
     }
