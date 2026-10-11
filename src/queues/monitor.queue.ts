@@ -3,6 +3,8 @@ import { createHash } from 'crypto';
 import { Redis } from 'ioredis';
 import { bullMQRedisConnection } from '../config/redis.config';
 import { logger } from '../utils/logger';
+import { EbaySearchParams } from '../types/ebay.types';
+import { canonicalSearch } from '../utils/search-key';
 
 /**
  * Job retention. `removeOnFail: false` (the previous setting) meant every
@@ -47,16 +49,22 @@ const JOB_OPTIONS = {
  * With many monitors that is a synchronised burst against eBay, Postgres and
  * the worker's concurrency limit, followed by a quiet stretch.
  *
- * A stable per-monitor offset derived from its id keeps each monitor's own
- * cadence exact while decorrelating it from its neighbours. Deterministic, so
- * a restart or reschedule does not move a monitor to a different slot.
+ * A stable offset keeps each monitor's own cadence exact while decorrelating
+ * it from its neighbours. It is derived from the monitor's normalised search
+ * (canonicalSearch), not its id: identical searches then share a phase, run
+ * in the same instant and share one eBay call through the search cache
+ * (ebay.service.ts). Derived from the id, two identical 2 h monitors ran
+ * within the cache's 60 s window only 1.7% of the time (R-13). Different
+ * searches still spread. Deterministic, so a restart or reschedule does not
+ * move a monitor to a different slot; an edit to the search moves it to the
+ * new search's phase.
  *
  * With an offset, BullMQ schedules the first job at the next slot plus the
  * offset, 0-2 intervals away, instead of immediately. Activation therefore
  * queues its own immediate run (see addMonitorJob's `runNow`).
  */
-function schedulerOffset(monitorId: string, interval: number): number {
-  const digest = createHash('sha1').update(monitorId).digest();
+function schedulerOffset(phaseKey: string, interval: number): number {
+  const digest = createHash('sha1').update(phaseKey).digest();
   // 32 bits of the digest is ample spread and stays well inside Number range.
   return digest.readUInt32BE(0) % Math.max(interval, 1);
 }
@@ -90,11 +98,13 @@ export class MonitorQueue {
    *   the baseline every later run is diffed against, so without it listings
    *   posted in that gap were never reported (R-1). Boot reconciliation passes
    *   false so a restart does not fire every monitor at once.
+   * @param search the monitor's search; it sets the scheduler phase. Without
+   *   it the phase falls back to the monitor id.
    */
   async addMonitorJob(
     monitorId: string,
     interval: number = parseInt(process.env.MONITOR_INTERVAL || '7200000'),
-    { runNow = false }: { runNow?: boolean } = {}
+    { runNow = false, search }: { runNow?: boolean; search?: EbaySearchParams } = {}
   ) {
     try {
       // Create a scheduler ID that's consistent and unique for this monitor
@@ -109,7 +119,10 @@ export class MonitorQueue {
       const upsert = () =>
         this.queue.upsertJobScheduler(
           schedulerId,
-          { every: interval, offset: schedulerOffset(monitorId, interval) },
+          {
+            every: interval,
+            offset: schedulerOffset(search ? canonicalSearch(search) : monitorId, interval),
+          },
           {
             name: schedulerId,
             data: { monitorId },

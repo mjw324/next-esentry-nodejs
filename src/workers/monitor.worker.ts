@@ -8,6 +8,7 @@ import { Job } from 'bullmq';
 import { bullMQRedisConnection } from '../config/redis.config';
 import { TransformedEbayResults } from '../types/ebay.types';
 import { logger } from '../utils/logger';
+import { monitorSearchParams } from '../utils/search-key';
 
 export class MonitorWorker {
   private worker: Worker;
@@ -87,14 +88,8 @@ export class MonitorWorker {
     try {
       const previousResults = await this.cacheService.getResults(monitorId);
 
-      const newResults = await this.ebayService.searchItems({
-        keywords: monitor.keywords,
-        excludedKeywords: monitor.excludedKeywords,
-        minPrice: monitor.minPrice || undefined,
-        maxPrice: monitor.maxPrice || undefined,
-        conditions: monitor.conditions,
-        sellers: monitor.sellers,
-      });
+      // Same params the scheduler phase was derived from (monitor.queue.ts).
+      const newResults = await this.ebayService.searchItems(monitorSearchParams(monitor));
 
       // Project to the fields the comparison and the email actually use.
       // Storing the raw itemSummaries persisted every field eBay returned,

@@ -7,6 +7,7 @@ import { EbaySearchParams, EbaySearchResults, EbayItem } from '../types/ebay.typ
 import { EbayAuthService } from './ebay-auth.service';
 import { RateLimitError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { canonicalSearch } from '../utils/search-key';
 
 // Default fieldgroups for an insights snapshot call. MATCHING_ITEMS keeps the
 // itemSummaries in the response while the *_REFINEMENTS groups add the
@@ -70,23 +71,37 @@ export class EbayService {
    * hashed to keep the key short regardless of how many keywords there are.
    */
   private searchCacheKey(params: EbaySearchParams): string {
-    const normalize = (values: string[] | undefined) =>
-      [...(values ?? [])].map((v) => v.toLowerCase().trim()).filter(Boolean).sort();
-
-    const canonical = JSON.stringify({
-      keywords: normalize(params.keywords),
-      excludedKeywords: normalize(params.excludedKeywords),
-      minPrice: params.minPrice ?? null,
-      maxPrice: params.maxPrice ?? null,
-      conditions: normalize(params.conditions),
-      sellers: normalize(params.sellers),
-    });
-
+    const canonical = canonicalSearch(params);
     return `ebay:search:${createHash('sha1').update(canonical).digest('base64url')}`;
   }
 
+  /** Searches in flight in this process, by cache key. */
+  private inflight = new Map<string, Promise<EbaySearchResults>>();
+
+  /**
+   * Identical searches share a scheduler phase (see monitor.queue.ts), so they
+   * fire in the same instant and run concurrently; without this both would
+   * miss the cache and call eBay. The second one waits for the first instead.
+   */
   async searchItems(params: EbaySearchParams): Promise<EbaySearchResults> {
     const cacheKey = this.searchCacheKey(params);
+    const pending = this.inflight.get(cacheKey);
+    if (pending) {
+      logger.debug('ebay.search.coalesced', { keywords: params.keywords.length });
+      return pending;
+    }
+
+    const search = this.searchItemsUncoalesced(params, cacheKey).finally(() => {
+      this.inflight.delete(cacheKey);
+    });
+    this.inflight.set(cacheKey, search);
+    return search;
+  }
+
+  private async searchItemsUncoalesced(
+    params: EbaySearchParams,
+    cacheKey: string
+  ): Promise<EbaySearchResults> {
 
     // Reuse an identical search issued moments ago by another monitor.
     try {

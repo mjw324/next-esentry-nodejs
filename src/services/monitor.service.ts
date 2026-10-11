@@ -6,6 +6,7 @@ import { CacheService } from './cache.service';
 import { BackoffService } from './backoff.service';
 import { RateLimitError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { monitorSearchParams } from '../utils/search-key';
 
 export class MonitorService {
   constructor(
@@ -45,7 +46,16 @@ export class MonitorService {
 
       const activeMonitors = await prisma.monitor.findMany({
         where: { status: 'active' },
-        select: { id: true, interval: true },
+        select: {
+          id: true,
+          interval: true,
+          keywords: true,
+          excludedKeywords: true,
+          minPrice: true,
+          maxPrice: true,
+          conditions: true,
+          sellers: true,
+        },
       });
 
       console.log(
@@ -77,7 +87,9 @@ export class MonitorService {
                 kept++;
                 return;
               }
-              await this.monitorQueue.addMonitorJob(monitor.id, monitor.interval);
+              await this.monitorQueue.addMonitorJob(monitor.id, monitor.interval, {
+                search: monitorSearchParams(monitor),
+              });
               initialized++;
             } catch (error) {
               failed++;
@@ -362,6 +374,7 @@ export class MonitorService {
     if (active) {
       await this.monitorQueue.addMonitorJob(monitorId, updatedMonitor.interval, {
         runNow: true,
+        search: monitorSearchParams(updatedMonitor),
       });
     }
 
@@ -494,7 +507,10 @@ export class MonitorService {
     // monitor as active and with its new interval. (This used to run before
     // the update and re-read the pre-update interval.)
     if (activating) {
-      await this.monitorQueue.addMonitorJob(monitorId, finalInterval, { runNow: true });
+      await this.monitorQueue.addMonitorJob(monitorId, finalInterval, {
+        runNow: true,
+        search: monitorSearchParams(updatedMonitor),
+      });
     } else if (intervalChanged || searchChanged) {
       if (searchChanged) {
         // Forget the old query's snapshot and backoff, then take the new
@@ -506,6 +522,7 @@ export class MonitorService {
       await this.monitorQueue.removeMonitorJob(monitorId);
       await this.monitorQueue.addMonitorJob(monitorId, finalInterval, {
         runNow: searchChanged,
+        search: monitorSearchParams(updatedMonitor),
       });
     }
 
