@@ -23,7 +23,9 @@ if current >= limit then
   return {current, 0}
 end
 local updated = redis.call('INCR', KEYS[1])
-if updated == 1 then
+-- TTL < 0 also heals a counter left without one (e.g. by the old
+-- non-atomic GET/INCR/TTL/EXPIRE sequence), which would otherwise never reset.
+if updated == 1 or redis.call('TTL', KEYS[1]) < 0 then
   redis.call('EXPIRE', KEYS[1], ttl)
 end
 return {updated, 1}
