@@ -288,6 +288,12 @@ export class MonitorQueue {
    * call repeatedly: it removes only terminal jobs (failed/completed), never
    * waiting, active or delayed ones.
    *
+   * Not `queue.clean()`: for the finished sets BullMQ's clean script omits
+   * the job-schedulers key, so it errors ("Lua redis lib command arguments
+   * must be strings or integers") on the first job that carries `rjk`, which
+   * is every job a scheduler created, i.e. all of ours. Production's 2,414
+   * failed jobs from 2025 are such jobs. Still the case in BullMQ 6.3.
+   *
    * @returns the number of jobs removed, by state
    */
   async cleanFinishedJobs(
@@ -297,16 +303,14 @@ export class MonitorQueue {
     const removed = { failed: 0, completed: 0 };
 
     try {
-      removed.failed = (await this.queue.clean(graceMs, limit, 'failed')).length;
+      removed.failed = await this.removeFinishedBefore('failed', graceMs, limit);
     } catch (error) {
       logger.error('queue.clean.failed_jobs_error', { error });
     }
 
     try {
       const completedGrace = JOB_RETENTION.removeOnComplete.age * 1000;
-      removed.completed = (
-        await this.queue.clean(completedGrace, limit, 'completed')
-      ).length;
+      removed.completed = await this.removeFinishedBefore('completed', completedGrace, limit);
     } catch (error) {
       logger.error('queue.clean.completed_jobs_error', { error });
     }
@@ -315,6 +319,36 @@ export class MonitorQueue {
       logger.info('queue.cleaned', removed);
     }
 
+    return removed;
+  }
+
+  /**
+   * Remove up to `limit` jobs from a finished set (scored by finishedOn) that
+   * finished more than `graceMs` ago. `queue.remove()` passes the schedulers
+   * key, so scheduler-created jobs are removed normally.
+   */
+  private async removeFinishedBefore(
+    state: 'failed' | 'completed',
+    graceMs: number,
+    limit: number
+  ): Promise<number> {
+    const client = await this.queue.client;
+    const ids = await client.zrangebyscore(
+      this.queue.toKey(state),
+      '-inf',
+      Date.now() - graceMs,
+      'LIMIT',
+      0,
+      limit
+    );
+
+    let removed = 0;
+    for (let i = 0; i < ids.length; i += 100) {
+      const results = await Promise.all(
+        ids.slice(i, i + 100).map((id) => this.queue.remove(id).catch(() => 0))
+      );
+      removed += results.filter((r) => r === 1).length;
+    }
     return removed;
   }
 
