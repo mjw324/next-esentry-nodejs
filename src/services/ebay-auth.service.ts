@@ -1,6 +1,7 @@
 import EbayAuthToken from 'ebay-oauth-nodejs-client';
 import { Redis } from 'ioredis';
 import { ebayConfig } from '../config/ebay.config';
+import { logger } from '../utils/logger';
 
 export class EbayAuthService {
   private readonly TOKEN_KEY = 'ebay:access_token';
@@ -26,11 +27,11 @@ export class EbayAuthService {
       });
       
       // Check for environment changes and clear cache if needed
-      this.checkEnvironmentChange().catch(error => {
-        console.error('Error checking environment change:', error);
+      this.checkEnvironmentChange().catch((error) => {
+        logger.error('ebay.environment.check_failed', { error });
       });
     } catch (error) {
-      console.error('Failed to initialize eBay Auth client:', error);
+      logger.error('ebay.auth.init_failed', { error });
       throw error;
     }
   }
@@ -44,14 +45,13 @@ export class EbayAuthService {
       const currentEnv = ebayConfig.environment;
       
       if (cachedEnv && cachedEnv !== currentEnv) {
-        console.log(`⚠️ Environment changed from ${cachedEnv} to ${currentEnv}`);
-        console.log('Clearing all eBay caches to prevent token mismatch...');
+        logger.warn('ebay.environment.changed', { from: cachedEnv, to: currentEnv });
         await this.clearAllEbayCache();
       }
       
       await this.redis.set(this.ENV_KEY, currentEnv);
     } catch (error) {
-      console.error('Error checking environment change:', error);
+      logger.error('ebay.environment.check_failed', { error });
     }
   }
 
@@ -88,16 +88,14 @@ export class EbayAuthService {
       const token = await this.fetchNewToken();
       return token;
     } catch (error) {
-      console.error('Error getting eBay access token:', error);
+      logger.error('ebay.token.unavailable', { error });
       throw new Error('Failed to authenticate with eBay');
     }
   }
 
   private async fetchNewToken(): Promise<string> {
     try {
-      console.log('Fetching new token with environment:', ebayConfig.environment);
       const response = await this.ebayAuth.getApplicationToken(ebayConfig.environment);
-      console.log('Raw token response:', response);
 
       const tokenData = JSON.parse(response);
 
@@ -113,9 +111,14 @@ export class EbayAuthService {
         this.redis.expire(this.TOKEN_EXPIRY_KEY, expires_in),
       ]);
 
+      logger.info('ebay.token.refreshed', {
+        environment: ebayConfig.environment,
+        expiresInSeconds: expires_in,
+      });
+
       return access_token;
     } catch (error) {
-      console.error('Error fetching new eBay token:', error);
+      logger.error('ebay.token.refresh_failed', { error });
       throw new Error('Failed to obtain eBay authentication token');
     }
   }

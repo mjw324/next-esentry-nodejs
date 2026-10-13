@@ -1,6 +1,7 @@
 import { NotificationService } from "./notification.service";
 import { EmailService } from "./email.service";
-import { EbayItem, TransformedEbayResults } from "../types/ebay.types";
+import { NotifiableItem, TransformedEbayResults } from "../types/ebay.types";
+import { logger } from "../utils/logger";
 
 export class ComparisonService {
     constructor(
@@ -11,16 +12,18 @@ export class ComparisonService {
     async compareResults(
         monitorId: string,
         userId: string,
+        monitorTitle: string,
         oldResults: TransformedEbayResults,
         newResults: TransformedEbayResults
     ): Promise<void> {
-        const newItems = this.findNewItems(oldResults.itemSummaries || [], newResults.itemSummaries || []);
+        const newItems = this.findNewItems(oldResults.items || [], newResults.items || []);
 
         if (newItems.length > 0) {
-            console.log(`Found ${newItems.length} new items for monitor ${monitorId}: `, newItems);
+            logger.info('monitor.new_items', { monitorId, count: newItems.length });
             await this.notificationService.sendNotification({
                 userId,
                 monitorId,
+                monitorTitle,
                 type: 'MONITOR_RESULTS',
                 message: 'New items found for your monitor',
                 data: { newItems }
@@ -28,7 +31,7 @@ export class ComparisonService {
         }
     }
 
-    private findNewItems(oldItems: EbayItem[], newItems: EbayItem[]): EbayItem[] {
+    private findNewItems(oldItems: NotifiableItem[], newItems: NotifiableItem[]): NotifiableItem[] {
         if (!oldItems || !newItems) {
             return newItems || [];
         }

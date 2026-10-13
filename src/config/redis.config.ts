@@ -16,6 +16,10 @@ function parseRedisUrl(url: string): RedisOptions {
 // Base Redis configuration
 const baseConfig: RedisOptions = {
   family: 0, // Enable dual-stack lookup for both IPv4 and IPv6
+  // Batch commands issued in the same event-loop tick into one round trip.
+  // Off by default in ioredis; several call paths here issue independent
+  // reads back to back, and this collapses them without touching the code.
+  enableAutoPipelining: true,
   maxRetriesPerRequest: null,
   connectTimeout: 10000,
   enableReadyCheck: true,

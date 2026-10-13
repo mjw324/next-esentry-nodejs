@@ -7,8 +7,11 @@ import { z } from 'zod';
 export const insightsParamsSchema = z.object({
   keywords: z.array(z.string()).min(1),
   excludedKeywords: z.array(z.string()).optional(),
-  minPrice: z.number().min(0).optional(),
-  maxPrice: z.number().min(0).optional(),
+  // nullish, not optional: the frontend's insights panel sends `null` for an
+  // unset price (paramsKey in useDebouncedParams.ts), and every insights call
+  // for a monitor without a full price range was rejected with 400 (R-8).
+  minPrice: z.number().min(0).nullish(),
+  maxPrice: z.number().min(0).nullish(),
   conditions: z.array(z.string()).optional(),
   sellers: z.array(z.string()).optional(),
 });

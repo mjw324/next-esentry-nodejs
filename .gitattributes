@@ -1,0 +1,9 @@
+# Shell scripts are COPYed straight into a Linux image, so they must keep LF
+# regardless of the checkout platform. This replaces the `dos2unix` step that
+# used to run in the Dockerfile.
+*.sh text eol=lf
+
+# Keep the Dockerfile and lockfile stable across platforms too.
+Dockerfile text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf

@@ -19,6 +19,17 @@ export class CacheService {
         return results ? JSON.parse(results) : null;
     }
 
+    /**
+     * Keep a snapshot alive without rewriting it. Backoff can stretch the gap
+     * between real runs to 24 h plus up to one interval, past EXPIRY_TIME;
+     * once the snapshot expired, the next run silently re-baselined and the
+     * first listing a barren monitor found was never reported (R-3).
+     */
+    async touchResults(monitorId: string): Promise<void> {
+        const key = `${this.RESULT_PREFIX}${monitorId}`;
+        await this.redis.expire(key, this.EXPIRY_TIME);
+    }
+
     async clearResults(monitorId: string): Promise<void> {
         const key = `${this.RESULT_PREFIX}${monitorId}`;
         await this.redis.del(key);
@@ -32,6 +43,10 @@ export class CacheService {
     async getJSON<T>(key: string): Promise<T | null> {
         const value = await this.redis.get(key);
         return value ? (JSON.parse(value) as T) : null;
+    }
+
+    async has(key: string): Promise<boolean> {
+        return (await this.redis.exists(key)) === 1;
     }
 
     async setJSON(key: string, value: unknown, ttlSeconds: number): Promise<void> {

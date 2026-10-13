@@ -98,9 +98,14 @@ export class InsightsService {
     const cached = await this.cacheService.getJSON<CalibrationSummary>(cacheKey);
     if (cached) return cached;
 
-    // Both reuse the shared raw-sample caches, so this stays within 3 calls.
+    // Go through getOutliers rather than recomputing: it has its own cache, so
+    // a calibrate that follows an outliers call for the same params does no
+    // eBay work and no duplicate token/outlier analysis. Sequential on
+    // purpose: run in parallel, both sides missed the raw-sample caches and
+    // fetched the same three samples, so a cold calibrate cost 6 calls (R-6).
+    // After getOutliers, gatherSample is served from those caches.
+    const outlier = await this.getOutliers(params);
     const { items, total } = await this.gatherSample(params);
-    const outlier = this.buildOutlierResult(params, items);
 
     const prices = this.pricesOf(items);
     const noiseTerms = outlier.suggestedRefinements.suggestedExcludedKeywords;
@@ -161,6 +166,20 @@ export class InsightsService {
    * cache from Phase 1, so this is at most 3 calls (often fewer when warm).
    */
   private async gatherSample(params: EbaySearchParams): Promise<{ items: EbayItem[]; total: number }> {
+    // Check the quota for the whole fan-out up front. The three calls below
+    // run concurrently and each used to assert quota for 1, so near the soft
+    // cap all three passed the gate independently and overshot it. Count only
+    // the samples that are not cached: asserting 3 regardless refused fully
+    // cached requests near the cap, which cost no eBay calls at all (R-7).
+    const misses = (
+      await Promise.all(
+        (['snapshot-raw', 'asc-raw', 'desc-raw'] as const).map((namespace) =>
+          this.cacheService.has(this.cacheService.buildInsightsKey(namespace, params))
+        )
+      )
+    ).filter((cached) => !cached).length;
+    if (misses > 0) await this.ebayService.assertQuota(misses);
+
     const [snapshot, asc, desc] = await Promise.all([
       this.getSnapshotRaw(params),
       this.getTailRaw(params, SORT_PRICE_ASC, 'asc-raw'),

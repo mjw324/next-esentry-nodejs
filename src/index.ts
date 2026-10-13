@@ -4,22 +4,14 @@ import { errorHandler } from './middleware/error.middleware';
 import { Redis } from 'ioredis';
 import { redisConfig } from './config/redis.config';
 import { prisma } from './lib/prisma';
-import { RateLimitService } from './services/ratelimit.service';
 import ebayNotificationRoutes from './routes/ebay-notification.routes';
-import monitorRoutes from './routes/monitor.routes';
-import insightsRoutes from './routes/insights.routes';
-import emailRoutes from './routes/email.routes';
-import authRoutes from './routes/auth.routes';
-import { EbayAuthService } from './services/ebay-auth.service';
-import { EbayService } from './services/ebay.service';
-import { CacheService } from './services/cache.service';
-import { NotificationService } from './services/notification.service';
-import { EmailService } from './services/email.service';
-import { VerificationService } from './services/verification.service';
-import { ComparisonService } from './services/comparison.service';
+import { createMonitorRouter } from './routes/monitor.routes';
+import { createInsightsRouter } from './routes/insights.routes';
+import { createEmailRouter } from './routes/email.routes';
+import { createAuthRouter } from './routes/auth.routes';
 import { MonitorWorker } from './workers/monitor.worker';
-import { MonitorService } from './services/monitor.service';
-import { MonitorQueue } from './queues/monitor.queue';
+import { MonitorController } from './controllers/monitor.controller';
+import { createContainer } from './container';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -39,6 +31,7 @@ if (process.env.REDIS_URL) {
   // When using REDIS_URL, ioredis can parse it directly
   redis = new Redis(process.env.REDIS_URL + '?family=0', {
     lazyConnect: true,
+    enableAutoPipelining: true,
     maxRetriesPerRequest: 3,
     enableReadyCheck: true,
     connectTimeout: 10000,
@@ -160,38 +153,28 @@ async function initialize() {
     const dbTest = await prisma.$queryRaw`SELECT 1 as test`;
     console.log('Database connection verified');
 
-    // Initialize services
-    const rateLimitService = new RateLimitService(redis);
-    const ebayAuthService = new EbayAuthService(redis);
-    const ebayService = new EbayService(ebayAuthService, redis);
-    const cacheService = new CacheService(redis);
-    const emailService = new EmailService();
-    const verificationService = new VerificationService();
-    const notificationService = new NotificationService(
-      rateLimitService,
-      emailService
-    );
-    const comparisonService = new ComparisonService(
-      notificationService,
-      emailService
-    );
+    // Build the service graph once and share it with every route module.
+    const container = createContainer(redis);
+    const { monitorService, ebayService, cacheService, comparisonService,
+            backoffService, emailService, verificationService } = container;
 
     // Initialize worker
     const monitorWorker = new MonitorWorker(
       ebayService,
       cacheService,
-      comparisonService
-    );
-
-    // Initialize monitor service and queue
-    const monitorQueue = new MonitorQueue(redis);
-    const monitorService = new MonitorService(
-      rateLimitService,
-      monitorQueue,
-      cacheService
+      comparisonService,
+      backoffService
     );
 
     console.log('All services initialized');
+
+    // Don't advertise the framework. The domain is scanned constantly
+    // (~2,300 probes/week in production), so this is a free fingerprint.
+    app.disable('x-powered-by');
+
+    // No client issues conditional GETs against this API, so hashing every
+    // JSON response body to produce an ETag is pure overhead.
+    app.set('etag', false);
 
     // Configure CORS
     app.use(
@@ -203,17 +186,17 @@ async function initialize() {
       })
     );
 
-    app.use(express.json());
+    // No legitimate request approaches this; the default is 100kb.
+    app.use(express.json({ limit: '32kb' }));
 
     // Routes
     app.use('/api/ebay-notifications', ebayNotificationRoutes);
-    app.use('/api/monitors', monitorRoutes);
-    app.use('/api/insights', insightsRoutes);
-    app.use('/api/emails', emailRoutes);
-    app.use('/api/auth', authRoutes);
+    app.use('/api/monitors', createMonitorRouter(container));
+    app.use('/api/insights', createInsightsRouter(container));
+    app.use('/api/emails', createEmailRouter(container));
+    app.use('/api/auth', createAuthRouter(container));
 
     // Unsubscribe route (no authentication required)
-    const { MonitorController } = require('./controllers/monitor.controller');
     const unsubscribeController = new MonitorController(
       monitorService,
       emailService,
@@ -224,8 +207,16 @@ async function initialize() {
       unsubscribeController.unsubscribeFromMonitor.bind(unsubscribeController)
     );
 
-    // Health check
-    app.get('/health', async (req, res) => {
+    // Liveness: is the process up and serving? No I/O, so a brief Redis or
+    // database blip cannot get the container restarted -- which, since the
+    // health check gates the deploy, used to be an expensive false positive.
+    app.get('/health', (req, res) => {
+      res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+    });
+
+    // Readiness: are the dependencies actually reachable? For dashboards and
+    // humans, not for the platform's restart decision.
+    app.get('/ready', async (req, res) => {
       const health: any = {
         status: 'checking',
         timestamp: new Date().toISOString(),
@@ -311,16 +302,35 @@ async function initialize() {
 
     app.use(errorHandler);
 
-    // Initialize active monitors before starting the server
-    await monitorService.initializeActiveMonitors();
+    // Express 5 calls this back with the error when the bind fails (e.g.
+    // EADDRINUSE) instead of throwing. Ignoring it left a process with no HTTP
+    // server running the worker and the boot reconciliation (R-10).
+    app.listen(port, (error?: Error) => {
+      if (error) {
+        console.error(`Failed to listen on port ${port}:`, error.message);
+        process.exit(1);
+      }
 
-    app.listen(port, () => {
       console.log('=== Server Started ===');
       console.log(`Listening on port ${port}`);
       console.log(`Environment: ${process.env.NODE_ENV}`);
       console.log(`Frontend URL: ${process.env.FRONTEND_URL}`);
       console.log(`Health check: http://localhost:${port}/health`);
       console.log('=====================');
+
+      // Reconcile schedulers after the server is accepting traffic. This work
+      // scales with the number of active monitors, and blocking on it meant
+      // the health check failed for its whole duration. The worker is already
+      // consuming the queue by this point, so nothing is missed.
+      monitorService.initializeActiveMonitors().catch((error) => {
+        console.error('Monitor initialization failed:', error);
+      });
+
+      // Daily sweep of expired sessions and verification tokens.
+      container.cleanupService.start();
+
+      // Finished-job sweep and events-stream trim (R-12); boot does one too.
+      container.monitorQueue.startPeriodicMaintenance();
     });
   } catch (error) {
     console.error('=== Initialization Failed ===');

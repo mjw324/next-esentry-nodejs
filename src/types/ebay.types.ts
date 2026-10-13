@@ -85,22 +85,35 @@ export interface EbayRefinement {
     dominantCategoryId?: string;
 }
 
+/**
+ * The projection of an eBay item that is actually cached and rendered.
+ *
+ * Note that `EbayItem` above declares only a subset of what the Browse API
+ * returns; storing `itemSummaries` verbatim persisted the raw response objects
+ * with every field eBay sent (shipping options, category paths, image sets,
+ * legacy ids, ...), not just the declared ones. These are the fields the
+ * comparison and the notification email actually read.
+ */
+export interface NotifiableItem {
+    itemId: string;
+    title: string;
+    price: EbayItemPrice;
+    condition: string;
+    seller: { username: string; feedbackScore?: number };
+    itemWebUrl: string;
+    image?: EbayItemImage;
+}
+
+/**
+ * A cached monitor snapshot. Previously this held both a projected `items[]`
+ * and the complete raw `itemSummaries[]` -- every field of `items` was a copy
+ * of one already present in `itemSummaries`, so each snapshot was stored twice
+ * over, serialised on write and parsed on read every interval for 24h.
+ */
 export interface TransformedEbayResults {
-    items: { 
-      itemId: string;
-      title: string;
-      price: number;
-      condition: string;
-      seller: string;
-      link: string;
-      timestamp: Date;
-    }[];
+    items: NotifiableItem[];
     total: number;
     timestamp: Date;
-    href: string;
-    limit: number;
-    offset: number;
-    itemSummaries: EbayItem[];
 }
 
 export interface EbaySearchParams {

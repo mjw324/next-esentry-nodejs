@@ -89,22 +89,20 @@ export class MonitorController {
         res.status(400).json({ error: 'Active status must be a boolean' });
         return; // Just return without the response object
       }
-      console.log(`"Im getting here ${id} ${active}`)
       const userId = req.user.id;
   
       // Verify the monitor belongs to the user
       const monitor = await prisma.monitor.findFirst({
-        where: { 
+        where: {
           id,
           userId
-        }
+        },
+        select: { id: true },
       });
-      console.log(`"Im getting here ${id} ${active}`)
       if (!monitor) {
         res.status(404).json({ error: 'Monitor not found' });
         return; // Just return without the response object
       }
-      console.log(`"Im getting here ${id} ${active}`)
       // Toggle the monitor status
       const updatedMonitor = await this.monitorService.toggleMonitorStatus(id, active);
   
@@ -144,17 +142,25 @@ export class MonitorController {
     }
   }
 
-  async unsubscribeFromMonitor(req: Request, res: Response, next: NextFunction) {
+  async unsubscribeFromMonitor(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
     try {
       const { token } = req.params;
 
       // Verify and decode the token
       const tokenData = this.unsubscribeService.verifyToken(token);
       if (!tokenData) {
-        return res.status(400).json({
+        // Send, then return void: returning the Response makes this handler
+        // incompatible with Express 5's RequestHandler type. index.ts used to
+        // load this controller through require(), which hid the mismatch.
+        res.status(400).json({
           success: false,
           message: 'Invalid or expired unsubscribe link'
         });
+        return;
       }
 
       // Unsubscribe from the monitor

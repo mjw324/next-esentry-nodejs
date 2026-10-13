@@ -44,8 +44,9 @@ export class InsightsController {
     return {
       keywords: body.keywords,
       excludedKeywords: body.excludedKeywords ?? [],
-      minPrice: body.minPrice,
-      maxPrice: body.maxPrice,
+      // null (sent for an unset price) means no bound, same as absent.
+      minPrice: body.minPrice ?? undefined,
+      maxPrice: body.maxPrice ?? undefined,
       conditions: body.conditions ?? [],
       sellers: body.sellers ?? [],
     };

@@ -2,13 +2,126 @@
 import { Redis } from 'ioredis';
 import { RateLimitError } from '../utils/errors';
 import { prisma } from '../lib/prisma';
+import { logger } from '../utils/logger';
+
+/**
+ * Atomically increment a fixed-window counter and report the result.
+ *
+ * Replaces the previous GET -> INCR -> TTL -> EXPIRE sequence, which cost four
+ * sequential Redis round trips per check and was not atomic: a crash between
+ * INCR and EXPIRE left a counter with no TTL, permanently locking the user out
+ * of that window.
+ *
+ * Returns [count, allowed]: the counter is only incremented when it is below
+ * the limit, so a rejected request does not push the window further out.
+ */
+const INCR_WITH_LIMIT = `
+local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+local limit = tonumber(ARGV[1])
+local ttl = tonumber(ARGV[2])
+if current >= limit then
+  return {current, 0}
+end
+local updated = redis.call('INCR', KEYS[1])
+-- TTL < 0 also heals a counter left without one (e.g. by the old
+-- non-atomic GET/INCR/TTL/EXPIRE sequence), which would otherwise never reset.
+if updated == 1 or redis.call('TTL', KEYS[1]) < 0 then
+  redis.call('EXPIRE', KEYS[1], ttl)
+end
+return {updated, 1}
+`;
+
+/** How long cached per-user limits stay valid. */
+const LIMIT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface UserLimits {
+  maxActiveMonitors: number;
+  maxApiCallsPerHour: number;
+  maxNotificationsPerDay: number;
+}
 
 export class RateLimitService {
-  constructor(private redis: Redis) {}
+  /**
+   * Per-user limit cache. These three integers change rarely (only when a plan
+   * is adjusted) but were previously read with a full `SELECT * FROM "User"`
+   * on every single API request.
+   */
+  private limitCache = new Map<string, { limits: UserLimits; expiresAt: number }>();
+
+  constructor(private redis: Redis) {
+    this.redis.defineCommand('incrWithLimit', {
+      numberOfKeys: 1,
+      lua: INCR_WITH_LIMIT,
+    });
+  }
+
+  /**
+   * Increment a fixed-window counter in a single round trip.
+   * @returns true when the request is within the limit
+   */
+  private async consume(key: string, limit: number, ttlSeconds: number): Promise<boolean> {
+    try {
+      const [, allowed] = (await (this.redis as any).incrWithLimit(
+        key,
+        limit,
+        ttlSeconds
+      )) as [number, number];
+      return allowed === 1;
+    } catch (error) {
+      // Fail open: a Redis blip should not take the API down. The counter is a
+      // guard rail, not a correctness requirement.
+      logger.error('ratelimit.redis_failed', { key, error });
+      return true;
+    }
+  }
+
+  /** Seconds remaining until the next UTC-local midnight. */
+  private secondsUntilMidnight(): number {
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    return Math.floor((midnight.getTime() - now.getTime()) / 1000);
+  }
+
+  /**
+   * Read the three per-user limits, cached for LIMIT_CACHE_TTL_MS.
+   * Selects only the three columns rather than the whole row.
+   */
+  private async getUserLimits(userId: string): Promise<UserLimits> {
+    const cached = this.limitCache.get(userId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.limits;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        maxActiveMonitors: true,
+        maxApiCallsPerHour: true,
+        maxNotificationsPerDay: true,
+      },
+    });
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    this.limitCache.set(userId, {
+      limits: user,
+      expiresAt: Date.now() + LIMIT_CACHE_TTL_MS,
+    });
+
+    return user;
+  }
+
+  /** Drop a cached limit set, e.g. after an admin changes a user's plan. */
+  invalidateUserLimits(userId: string): void {
+    this.limitCache.delete(userId);
+  }
 
   async validateUserMonitorLimit(userId: string): Promise<void> {
-    const [user, activeMonitorsCount] = await Promise.all([
-      prisma.user.findUnique({ where: { id: userId } }),
+    const [limits, activeMonitorsCount] = await Promise.all([
+      this.getUserLimits(userId),
       prisma.monitor.count({
         where: {
           userId,
@@ -17,98 +130,38 @@ export class RateLimitService {
       }),
     ]);
 
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    if (activeMonitorsCount >= user.maxActiveMonitors) {
-      throw new RateLimitError(`You have reached the maximum limit of ${user.maxActiveMonitors} active monitors. Please deactivate or delete an existing monitor before creating a new one.`);
+    if (activeMonitorsCount >= limits.maxActiveMonitors) {
+      throw new RateLimitError(
+        `You have reached the maximum limit of ${limits.maxActiveMonitors} active monitors. Please deactivate or delete an existing monitor before creating a new one.`
+      );
     }
   }
 
   /**
-   * Check notification rate limits for a user
+   * Check notification rate limits for a user.
+   *
+   * Note: this only consumes from the daily budget. Incrementing the monitor's
+   * own notificationCount is the caller's job -- it used to happen here with an
+   * updateMany across every monitor the user owned.
    */
   async checkNotificationLimit(
     userId: string,
-    notificationType: string
+    _notificationType: string
   ): Promise<boolean> {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    const maxNotifications = user.maxNotificationsPerDay;
-    const key = `notification:${userId}:daily`;
-
-    // Get current count from Redis
-    const currentCount = await this.redis.get(key);
-    const count = currentCount ? parseInt(currentCount) : 0;
-
-    // If count exceeds limit, return false
-    if (count >= maxNotifications) {
-      return false;
-    }
-
-    // Increment count and set expiry if needed
-    await this.redis.incr(key);
-
-    // Set TTL to end of day if not already set
-    const ttl = await this.redis.ttl(key);
-    if (ttl < 0) {
-      // Calculate seconds until midnight
-      const now = new Date();
-      const midnight = new Date(now);
-      midnight.setHours(24, 0, 0, 0);
-      const secondsUntilMidnight = Math.floor((midnight.getTime() - now.getTime()) / 1000);
-
-      await this.redis.expire(key, secondsUntilMidnight);
-    }
-
-    // Also track per-monitor notification counts
-    if (notificationType === 'MONITOR_RESULTS') {
-      await prisma.monitor.updateMany({
-        where: { userId },
-        data: { notificationCount: { increment: 1 } }
-      });
-    }
-
-    return true;
+    const { maxNotificationsPerDay } = await this.getUserLimits(userId);
+    return this.consume(
+      `notification:${userId}:daily`,
+      maxNotificationsPerDay,
+      this.secondsUntilMidnight()
+    );
   }
 
   /**
-   * Check API rate limits for a user
+   * Check API rate limits for a user.
    */
   async checkApiRateLimit(userId: string): Promise<boolean> {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    const maxCalls = user.maxApiCallsPerHour;
-    const key = `api:${userId}:hourly`;
-    // TODO: Use cache.service.ts for this operation instead of  directly accessing redis
-    // Get current count from Redis
-    const currentCount = await this.redis.get(key);
-    const count = currentCount ? parseInt(currentCount) : 0;
-
-    // If count exceeds limit, return false
-    if (count >= maxCalls) {
-      return false;
-    }
-
-    // Increment count and set expiry if needed
-    await this.redis.incr(key);
-
-    // Set TTL to 1 hour if not already set
-    const ttl = await this.redis.ttl(key);
-    if (ttl < 0) {
-      await this.redis.expire(key, 60 * 60); // 1 hour in seconds
-    }
-
-    return true;
+    const { maxApiCallsPerHour } = await this.getUserLimits(userId);
+    return this.consume(`api:${userId}:hourly`, maxApiCallsPerHour, 60 * 60);
   }
 
   /**
@@ -117,27 +170,7 @@ export class RateLimitService {
    */
   async checkMonitorToggleLimit(userId: string): Promise<boolean> {
     const maxToggles = 10; // 10 toggles per minute
-    const key = `monitor:toggle:${userId}:minute`;
-
-    // Get current count from Redis
-    const currentCount = await this.redis.get(key);
-    const count = currentCount ? parseInt(currentCount) : 0;
-
-    // If count exceeds limit, return false
-    if (count >= maxToggles) {
-      return false;
-    }
-
-    // Increment count and set expiry if needed
-    await this.redis.incr(key);
-
-    // Set TTL to 1 minute if not already set
-    const ttl = await this.redis.ttl(key);
-    if (ttl < 0) {
-      await this.redis.expire(key, 60); // 1 minute in seconds
-    }
-
-    return true;
+    return this.consume(`monitor:toggle:${userId}:minute`, maxToggles, 60);
   }
 
   /**
@@ -146,7 +179,7 @@ export class RateLimitService {
   async trackMonitorApiCall(monitorId: string): Promise<void> {
     await prisma.monitor.update({
       where: { id: monitorId },
-      data: { apiCallCount: { increment: 1 } }
+      data: { apiCallCount: { increment: 1 } },
     });
   }
 }
