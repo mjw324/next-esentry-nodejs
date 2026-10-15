@@ -136,7 +136,7 @@ export class EmailController {
     }
   };
 
-  setEmailActive = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  setEmailActive = async (req: Request<{ emailId: string }>, res: Response, next: NextFunction): Promise<void> => {
     try {
       const userId = req.user.id;
       const { emailId } = req.params;
@@ -223,7 +223,7 @@ export class EmailController {
     }
   };
 
-  deleteAlertEmail = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  deleteAlertEmail = async (req: Request<{ emailId: string }>, res: Response, next: NextFunction): Promise<void> => {
     try {
       const userId = req.user.id;
       const { emailId } = req.params;
@@ -260,7 +260,7 @@ export class EmailController {
     }
   };
 
-  verifyEmailById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  verifyEmailById = async (req: Request<{ emailId: string }>, res: Response, next: NextFunction): Promise<void> => {
     try {
       const userId = req.user.id;
       const { emailId } = req.params;
@@ -282,7 +282,7 @@ export class EmailController {
     }
   };
 
-  resendVerificationCode = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  resendVerificationCode = async (req: Request<{ emailId: string }>, res: Response, next: NextFunction): Promise<void> => {
     try {
       const userId = req.user.id;
       const { emailId } = req.params;
@@ -314,7 +314,7 @@ export class EmailController {
     }
   };
 
-  getEmailStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  getEmailStatus = async (req: Request<{ emailId: string }>, res: Response, next: NextFunction): Promise<void> => {
     try {
       const userId = req.user.id;
       const { emailId } = req.params;

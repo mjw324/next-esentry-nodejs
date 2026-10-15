@@ -80,7 +80,7 @@ export class MonitorController {
     }
   }
 
-  async toggleMonitorStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async toggleMonitorStatus(req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       const { active } = req.body;
@@ -114,7 +114,7 @@ export class MonitorController {
   }
   
   
-  async updateMonitor(req: Request, res: Response, next: NextFunction) {
+  async updateMonitor(req: Request<{ id: string }>, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
       const userId = req.user.id;
@@ -128,7 +128,7 @@ export class MonitorController {
     }
   }
 
-  async deleteMonitor(req: Request, res: Response, next: NextFunction) {
+  async deleteMonitor(req: Request<{ id: string }>, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
       const userId = req.user.id;
@@ -143,7 +143,7 @@ export class MonitorController {
   }
 
   async unsubscribeFromMonitor(
-    req: Request,
+    req: Request<{ token: string }>,
     res: Response,
     next: NextFunction
   ): Promise<void> {
