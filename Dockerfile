@@ -11,7 +11,7 @@ ARG PNPM_VERSION=10.34.6
 # ---------------------------------------------------------------------------
 # Stage 1: dependencies (full, including devDependencies) + Prisma client
 # ---------------------------------------------------------------------------
-FROM node:20-alpine AS deps
+FROM node:24-alpine AS deps
 
 ARG PNPM_VERSION
 
@@ -28,7 +28,7 @@ RUN pnpm install --frozen-lockfile
 # ---------------------------------------------------------------------------
 # Stage 2: compile TypeScript -> dist/
 # ---------------------------------------------------------------------------
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 
 ARG PNPM_VERSION
 
@@ -46,7 +46,7 @@ RUN pnpm build
 # ---------------------------------------------------------------------------
 # Stage 3: runtime — production dependencies only
 # ---------------------------------------------------------------------------
-FROM node:20-alpine AS runtime
+FROM node:24-alpine AS runtime
 
 ARG PNPM_VERSION
 
