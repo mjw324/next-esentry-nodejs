@@ -332,10 +332,7 @@ export class MonitorQueue {
     graceMs: number,
     limit: number
   ): Promise<number> {
-    // BullMQ types `queue.client` as its own IRedisClient, which has no
-    // ZRANGEBYSCORE. At runtime it is a Proxy over the ioredis instance that
-    // forwards every command outside that interface to ioredis.
-    const client = (await this.queue.client) as unknown as Redis;
+    const client = await this.queue.client;
     const ids = await client.zrangebyscore(
       this.queue.toKey(state),
       '-inf',
