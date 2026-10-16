@@ -5,7 +5,7 @@ import { Redis } from 'ioredis';
 import { ebayConfig } from '../config/ebay.config';
 import { EbaySearchParams, EbaySearchResults, EbayItem } from '../types/ebay.types';
 import { EbayAuthService } from './ebay-auth.service';
-import { RateLimitError } from '../utils/errors';
+import { NotFoundError, RateLimitError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { canonicalSearch } from '../utils/search-key';
 import { conditionIdsFor } from '../utils/conditions';
@@ -235,6 +235,55 @@ export class EbayService {
         message: error instanceof Error ? error.message : String(error),
       });
       throw new Error('Failed to fetch market data from eBay');
+    }
+  }
+
+  /**
+   * A Browse GET for the research endpoints (any Browse path, caller-built
+   * params). Same token, timeout, quota guard and bookkeeping as the monitoring
+   * and insights paths. `zip` goes into the end-user context so calculated
+   * shipping and price+shipping sorts are accurate.
+   */
+  async browseGet<T>(
+    path: string,
+    params: Record<string, string | number>,
+    opts: { zip?: string } = {}
+  ): Promise<T> {
+    await this.assertQuota(1);
+
+    try {
+      const accessToken = await this.authService.getAccessToken();
+      const context = opts.zip
+        ? `contextualLocation=country=US,zip=${opts.zip}`
+        : 'contextualLocation=country=US';
+
+      const response = await axios.get<T>(`${ebayConfig.apiUrl}${path}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
+          'X-EBAY-C-ENDUSERCTX': context,
+        },
+        params,
+        timeout: EBAY_REQUEST_TIMEOUT_MS,
+      });
+
+      await this.trackBrowseCall();
+      return response.data;
+    } catch (error) {
+      if (error instanceof RateLimitError) throw error;
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      // Status + body only: the raw axios error carries the bearer token.
+      logger.error('ebay.browse.failed', {
+        path,
+        status,
+        body: axios.isAxiosError(error) ? error.response?.data : undefined,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      if (status === 404) {
+        throw new NotFoundError('eBay item not found or no longer available');
+      }
+      throw new Error('Failed to fetch from eBay');
     }
   }
 
