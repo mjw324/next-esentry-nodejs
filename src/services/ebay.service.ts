@@ -8,6 +8,7 @@ import { EbayAuthService } from './ebay-auth.service';
 import { RateLimitError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { canonicalSearch } from '../utils/search-key';
+import { conditionIdsFor } from '../utils/conditions';
 
 // Default fieldgroups for an insights snapshot call. MATCHING_ITEMS keeps the
 // itemSummaries in the response while the *_REFINEMENTS groups add the
@@ -311,9 +312,11 @@ export class EbayService {
       filters.push('priceCurrency:USD');
     }
   
-    // Add condition filter
-    if (params.conditions.length > 0) {
-      filters.push(`conditionIds:{${params.conditions.join('|')}}`);
+    // Condition names must become IDs: eBay ignores a conditionIds filter it
+    // can't parse and returns every condition (see utils/conditions.ts).
+    const conditionIds = conditionIdsFor(params.conditions);
+    if (conditionIds.length > 0) {
+      filters.push(`conditionIds:{${conditionIds.join('|')}}`);
     }
   
     // Add sellers filter
