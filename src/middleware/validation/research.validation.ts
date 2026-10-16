@@ -41,6 +41,37 @@ export const validateResearchSearch = (req: Request, res: Response, next: NextFu
   next();
 };
 
+export const soldTrackSchema = z.object({
+  q: z.string().trim().min(1).max(350),
+  label: z.string().trim().max(120).optional(),
+  conditions: z.array(condition).max(10).optional(),
+  categoryIds: z.array(z.string().regex(/^\d+$/)).max(1).optional(),
+  excludedKeywords: z.array(z.string().max(60)).max(40).optional(),
+  minPrice: z.number().min(0).nullish(),
+  maxPrice: z.number().min(0).nullish(),
+});
+
+export const validateSoldTrack = (req: Request, res: Response, next: NextFunction) => {
+  const parsed = soldTrackSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({
+      error: 'Invalid track parameters',
+      issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+    });
+    return;
+  }
+  req.body = parsed.data;
+  next();
+};
+
+export const validateTrackId = (req: Request, res: Response, next: NextFunction) => {
+  if (!/^[0-9a-f-]{36}$/i.test(String(req.params.id ?? ''))) {
+    res.status(400).json({ error: 'Invalid track id' });
+    return;
+  }
+  next();
+};
+
 /** v1|<legacy>|<variation> or the bare legacy number from an ebay.com/itm URL. */
 export const validateItemId = (req: Request, res: Response, next: NextFunction) => {
   const id = String(req.params.id ?? '');

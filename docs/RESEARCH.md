@@ -102,3 +102,40 @@ of the change (2026-10-16), so no alert behaviour changed.
   browser instead.
 - `matchCount`s in refinements don't add up to `total`, and condition
   refinements come back with zero counts when a category is set (eBay quirk).
+
+## Sold-price tracking from auction results (`/api/research/tracks`)
+
+eBay's sold-price API is closed to this keyset, but an auction stays readable
+through Browse `getItem` after it ends. Checked live on 2026-10-16: once an
+auction ends, `getItem` keeps `currentBidPrice` at the winning bid, drops
+`bidCount` and `buyingOptions`, and flips availability to `OUT_OF_STOCK` with
+`estimatedSoldQuantity: 1`. An auction that ends unsold stays `IN_STOCK` with 0
+sold. A Buy It Now sale on a fixed-price listing is not visible this way.
+
+So a **track** is a saved query whose auction results are recorded over time:
+
+- Every hour the tracker searches each track's auctions ending within 90 minutes
+  (`buyingOptions:{AUCTION}`, `itemEndDate:[..now+90m]`, sorted ending soonest)
+  and queues the new ones, noting their bid count.
+- Ten minutes after each queued auction's end it reads the item back and, if eBay
+  reports it sold, records the sale: final bid, shipping, total, the last bid
+  count seen before the end, end time, condition and seller.
+- One search per track per hour plus one `getItem` per ended auction (capped at
+  150 per run), all against the shared quota and stopped by the soft cap like
+  every other path. A busy track (say 40 auctions a day) costs about 64 calls a day.
+
+| Method & path | Does |
+|---|---|
+| `POST /api/research/tracks` | `{ q, label?, conditions?, categoryIds?, excludedKeywords?, minPrice?, maxPrice? }` → the track (max 25 per user) |
+| `GET /api/research/tracks` | the user's tracks with sale counts |
+| `GET /api/research/tracks/:id/sales?days=90` | sales in the window plus `stats` (n, min, q1, median, q3, max over totals) |
+| `DELETE /api/research/tracks/:id` | removes the track and its sales |
+
+Storage is Redis (persisted to the volume): track definitions per user, a
+pending sorted set scored by read-back time, and up to 2,000 sales per track.
+Clients that need a permanent record (the shopping workspace) copy sales into
+their own store.
+
+Limits: this sees **auction** sales only. Auctions skew a little lower than
+fixed-price sales for the same item, and thin categories collect slowly. Read the
+stats as "what auctions close at", alongside active fixed-price asks.
