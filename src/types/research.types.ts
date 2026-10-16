@@ -126,3 +126,55 @@ export interface ResearchItem {
   imageCount: number;
   fetchedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Sold-price tracking from auction results (/api/research/tracks)
+// ---------------------------------------------------------------------------
+
+export interface SoldTrackInput {
+  q: string;
+  label?: string;
+  conditions?: string[];
+  categoryIds?: string[];
+  excludedKeywords?: string[];
+  minPrice?: number | null;
+  maxPrice?: number | null;
+}
+
+export interface SoldTrack {
+  id: string;
+  userId: string;
+  label: string;
+  q: string;
+  conditions: string[];
+  categoryIds: string[];
+  excludedKeywords: string[];
+  minPrice: number | null;
+  maxPrice: number | null;
+  createdAt: string;
+}
+
+/** A finished auction that eBay reports as sold. */
+export interface AuctionSale {
+  itemId: string;
+  legacyItemId?: string;
+  title: string;
+  url: string;
+  condition?: string;
+  conditionId?: string;
+  /** Final (winning) bid. */
+  price: number;
+  shipping: number | null;
+  total: number;
+  /** Bids when last seen before the end (eBay drops the count afterwards). */
+  bidCount: number;
+  endedAt: string;
+  seller?: string;
+}
+
+export interface SoldTrackSales {
+  track: SoldTrack;
+  days: number;
+  stats: { n: number; min: number; q1: number; median: number; q3: number; max: number } | null;
+  sales: AuctionSale[];
+}

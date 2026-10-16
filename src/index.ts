@@ -331,6 +331,9 @@ async function initialize() {
       // Daily sweep of expired sessions and verification tokens.
       container.cleanupService.start();
 
+      // Hourly: queue tracked auctions about to end, record the ones that sold.
+      container.soldTrackerService.start();
+
       // Finished-job sweep and events-stream trim (R-12); boot does one too.
       container.monitorQueue.startPeriodicMaintenance();
     });

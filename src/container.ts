@@ -13,6 +13,7 @@ import { ComparisonService } from './services/comparison.service';
 import { MonitorService } from './services/monitor.service';
 import { InsightsService } from './services/insights.service';
 import { ResearchService } from './services/research.service';
+import { SoldTrackerService } from './services/sold-tracker.service';
 import { AuthService } from './services/auth.service';
 import { CleanupService } from './services/cleanup.service';
 import { MonitorQueue } from './queues/monitor.queue';
@@ -48,6 +49,7 @@ export interface AppContainer {
   monitorService: MonitorService;
   insightsService: InsightsService;
   researchService: ResearchService;
+  soldTrackerService: SoldTrackerService;
   authService: AuthService;
   cleanupService: CleanupService;
   rateLimitMiddleware: RequestHandler;
@@ -75,6 +77,7 @@ export function createContainer(redis: Redis): AppContainer {
 
   const insightsService = new InsightsService(ebayService, cacheService);
   const researchService = new ResearchService(ebayService, cacheService);
+  const soldTrackerService = new SoldTrackerService(ebayService, redis);
   const authService = new AuthService(verificationService);
   const cleanupService = new CleanupService();
 
@@ -93,6 +96,7 @@ export function createContainer(redis: Redis): AppContainer {
     monitorService,
     insightsService,
     researchService,
+    soldTrackerService,
     authService,
     cleanupService,
     rateLimitMiddleware: createRateLimitMiddleware(rateLimitService),
