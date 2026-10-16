@@ -11,3 +11,10 @@ export class RateLimitError extends Error {
       this.name = 'ValidationError';
     }
   }
+
+  export class NotFoundError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'NotFoundError';
+    }
+  }

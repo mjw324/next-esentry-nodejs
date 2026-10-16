@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { createHash, timingSafeEqual } from 'crypto';
 import { prisma } from '../lib/prisma';
 import { logger } from '../utils/logger';
 
@@ -22,6 +23,44 @@ if (allowLegacyUserId) {
   logger.warn('auth.legacy_user_id_enabled');
 }
 
+/**
+ * Personal access tokens, for scripts that act as one user without a browser
+ * session (the owner's shopping-research workspace calls /api/research with
+ * one). Configured as PERSONAL_ACCESS_TOKENS="<userId>:<sha256 hex>[,...]", so
+ * only hashes live in the environment; rotating a token is an env change.
+ * Tokens carry the `esp_` prefix and never reach the Session table.
+ */
+const PERSONAL_TOKEN_PREFIX = 'esp_';
+
+interface PersonalToken {
+  userId: string;
+  hash: Buffer;
+}
+
+function parsePersonalTokens(raw: string | undefined): PersonalToken[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .flatMap((entry) => {
+      const [userId, hex] = entry.split(':');
+      if (!userId || !/^[0-9a-f]{64}$/i.test(hex ?? '')) {
+        logger.warn('auth.personal_token_malformed');
+        return [];
+      }
+      return [{ userId, hash: Buffer.from(hex, 'hex') }];
+    });
+}
+
+const personalTokens = parsePersonalTokens(process.env.PERSONAL_ACCESS_TOKENS);
+
+function personalTokenUser(token: string): string | null {
+  const digest = createHash('sha256').update(token).digest();
+  const match = personalTokens.find((t) => timingSafeEqual(t.hash, digest));
+  return match?.userId ?? null;
+}
+
 function bearerToken(req: Request): string | null {
   const header = req.headers.authorization;
   if (!header) return null;
@@ -33,6 +72,18 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
   try {
     if (req.headers.authorization) {
       const token = bearerToken(req);
+
+      if (token?.startsWith(PERSONAL_TOKEN_PREFIX)) {
+        const userId = personalTokenUser(token);
+        if (!userId) {
+          res.status(401).json({ error: 'Unauthorized - Invalid access token' });
+          return;
+        }
+        req.user = { id: userId };
+        next();
+        return;
+      }
+
       const session = token
         ? await prisma.session.findUnique({
             where: { token },

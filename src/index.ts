@@ -7,6 +7,7 @@ import { prisma } from './lib/prisma';
 import ebayNotificationRoutes from './routes/ebay-notification.routes';
 import { createMonitorRouter } from './routes/monitor.routes';
 import { createInsightsRouter } from './routes/insights.routes';
+import { createResearchRouter } from './routes/research.routes';
 import { createEmailRouter } from './routes/email.routes';
 import { createAuthRouter } from './routes/auth.routes';
 import { MonitorWorker } from './workers/monitor.worker';
@@ -193,6 +194,7 @@ async function initialize() {
     app.use('/api/ebay-notifications', ebayNotificationRoutes);
     app.use('/api/monitors', createMonitorRouter(container));
     app.use('/api/insights', createInsightsRouter(container));
+    app.use('/api/research', createResearchRouter(container));
     app.use('/api/emails', createEmailRouter(container));
     app.use('/api/auth', createAuthRouter(container));
 
