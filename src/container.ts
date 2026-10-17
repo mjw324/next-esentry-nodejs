@@ -5,7 +5,6 @@ import { RateLimitService } from './services/ratelimit.service';
 import { EbayAuthService } from './services/ebay-auth.service';
 import { EbayService } from './services/ebay.service';
 import { CacheService } from './services/cache.service';
-import { BackoffService } from './services/backoff.service';
 import { EmailService } from './services/email.service';
 import { VerificationService } from './services/verification.service';
 import { NotificationService } from './services/notification.service';
@@ -40,7 +39,6 @@ export interface AppContainer {
   ebayAuthService: EbayAuthService;
   ebayService: EbayService;
   cacheService: CacheService;
-  backoffService: BackoffService;
   emailService: EmailService;
   verificationService: VerificationService;
   notificationService: NotificationService;
@@ -60,7 +58,6 @@ export function createContainer(redis: Redis): AppContainer {
   const ebayAuthService = new EbayAuthService(redis);
   const ebayService = new EbayService(ebayAuthService, redis);
   const cacheService = new CacheService(redis);
-  const backoffService = new BackoffService(redis);
   const emailService = new EmailService();
   const verificationService = new VerificationService();
 
@@ -71,8 +68,7 @@ export function createContainer(redis: Redis): AppContainer {
   const monitorService = new MonitorService(
     rateLimitService,
     monitorQueue,
-    cacheService,
-    backoffService
+    cacheService
   );
 
   const insightsService = new InsightsService(ebayService, cacheService);
@@ -87,7 +83,6 @@ export function createContainer(redis: Redis): AppContainer {
     ebayAuthService,
     ebayService,
     cacheService,
-    backoffService,
     emailService,
     verificationService,
     notificationService,

@@ -3,7 +3,6 @@ import { CreateMonitorDTO, MonitorResponse } from '../types/monitor.types';
 import { RateLimitService } from './ratelimit.service';
 import { MonitorQueue } from '../queues/monitor.queue';
 import { CacheService } from './cache.service';
-import { BackoffService } from './backoff.service';
 import { RateLimitError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { monitorSearchParams } from '../utils/search-key';
@@ -12,20 +11,15 @@ export class MonitorService {
   constructor(
     private rateLimitService: RateLimitService,
     private monitorQueue: MonitorQueue,
-    private cacheService: CacheService,
-    private backoffService: BackoffService
+    private cacheService: CacheService
   ) {}
 
   /**
-   * Forget a monitor's cached snapshot and its empty-run backoff together.
-   * They are always invalidated for the same reasons: the monitor stopped, was
-   * deleted, or its search terms changed, any of which makes both stale.
+   * Forget a monitor's cached snapshot. Invalidated when the monitor stopped,
+   * was deleted, or its search terms changed, any of which makes it stale.
    */
   private async resetMonitorState(monitorId: string): Promise<void> {
-    await Promise.all([
-      this.cacheService.clearResults(monitorId),
-      this.backoffService.reset(monitorId),
-    ]);
+    await this.cacheService.clearResults(monitorId);
   }
 
   /**
@@ -261,11 +255,6 @@ export class MonitorService {
 
     const hasActiveEmail = !!activeEmail;
 
-    // Backoff only applies to active monitors (deactivating resets it).
-    const backoff = await this.backoffService.getSummaries(
-      monitors.filter((m: any) => m.status === 'active')
-    );
-
     // Return both monitors and hasActiveEmail flag
     return {
       monitors: monitors.map(
@@ -283,15 +272,6 @@ export class MonitorService {
           nextCheckAt: monitor.nextCheckAt ?? undefined,
           lastCheckTime: monitor.lastCheckTime ?? undefined,
           lastResultCount: monitor.lastResultCount,
-          effectiveIntervalMs:
-            backoff.get(monitor.id)?.effectiveIntervalMs ?? monitor.interval,
-          ...(backoff.has(monitor.id) && {
-            backoff: {
-              emptyStreak: backoff.get(monitor.id)!.emptyStreak,
-              factor: backoff.get(monitor.id)!.factor,
-              nextCheckAfter: backoff.get(monitor.id)!.nextCheckAfter,
-            },
-          }),
         })
       ),
       hasActiveEmail,
@@ -487,8 +467,8 @@ export class MonitorService {
     // the slot after "now" and can drop the pending one (R-18).
     const intervalChanged =
       finalStatus === 'active' && !activating && finalInterval !== monitor.interval;
-    // Any change to what is searched makes the snapshot and the backoff state
-    // describe a different query (R-15, R-16).
+    // Any change to what is searched makes the snapshot describe a different
+    // query (R-16).
     const searchFields = [
       'keywords',
       'excludedKeywords',
@@ -527,10 +507,9 @@ export class MonitorService {
       });
     } else if (intervalChanged || searchChanged) {
       if (searchChanged) {
-        // Forget the old query's snapshot and backoff, then take the new
-        // query's baseline now. Keeping them meant the next run either emailed
-        // every current listing of the new query as "new" (R-16) or, when the
-        // old query was backed off, did not run for up to 24 h (R-15).
+        // Forget the old query's snapshot, then take the new query's baseline
+        // now. Keeping it meant the next run emailed every current listing of
+        // the new query as "new" (R-16).
         await this.resetMonitorState(monitorId);
       }
       await this.monitorQueue.removeMonitorJob(monitorId);

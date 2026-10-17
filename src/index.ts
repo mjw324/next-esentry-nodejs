@@ -157,14 +157,13 @@ async function initialize() {
     // Build the service graph once and share it with every route module.
     const container = createContainer(redis);
     const { monitorService, ebayService, cacheService, comparisonService,
-            backoffService, emailService, verificationService } = container;
+            emailService, verificationService } = container;
 
     // Initialize worker
     const monitorWorker = new MonitorWorker(
       ebayService,
       cacheService,
-      comparisonService,
-      backoffService
+      comparisonService
     );
 
     console.log('All services initialized');

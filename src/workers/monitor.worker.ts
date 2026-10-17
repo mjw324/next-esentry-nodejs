@@ -2,7 +2,6 @@ import { Worker } from 'bullmq';
 import { EbayService } from '../services/ebay.service';
 import { CacheService } from '../services/cache.service';
 import { ComparisonService } from '../services/comparison.service';
-import { BackoffService } from '../services/backoff.service';
 import { prisma } from '../lib/prisma';
 import { Job } from 'bullmq';
 import { bullMQRedisConnection } from '../config/redis.config';
@@ -15,8 +14,7 @@ export class MonitorWorker {
   constructor(
     private ebayService: EbayService,
     private cacheService: CacheService,
-    private comparisonService: ComparisonService,
-    private backoffService: BackoffService
+    private comparisonService: ComparisonService
   ) {
     this.worker = new Worker(
       'monitor-queue',
@@ -76,15 +74,6 @@ export class MonitorWorker {
       return; // Skip processing for inactive monitors
     }
 
-    // A monitor that keeps coming back empty polls less often. The job still
-    // fires on its configured interval; this skips the eBay call itself, and
-    // refreshes the snapshot's TTL so it outlives the backoff.
-    if (await this.backoffService.shouldSkip(monitorId)) {
-      await this.cacheService.touchResults(monitorId);
-      logger.debug('worker.skip', { monitorId, reason: 'backoff' });
-      return;
-    }
-
     try {
       const previousResults = await this.cacheService.getResults(monitorId);
 
@@ -112,25 +101,6 @@ export class MonitorWorker {
       };
 
       await this.cacheService.storeResults(monitorId, transformedResults);
-
-      // Empty result sets extend the effective interval; any hit resets it.
-      if (transformedResults.items.length === 0) {
-        const { emptyStreak, factor } = await this.backoffService.recordEmpty(
-          monitorId,
-          monitor.interval,
-          startedAt
-        );
-        if (factor > 1) {
-          logger.info('monitor.backoff', {
-            monitorId,
-            emptyStreak,
-            factor,
-            effectiveIntervalMs: monitor.interval * factor,
-          });
-        }
-      } else {
-        await this.backoffService.recordHit(monitorId);
-      }
 
       if (previousResults) {
         await this.comparisonService.compareResults(
