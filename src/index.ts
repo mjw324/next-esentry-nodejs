@@ -1,3 +1,6 @@
+// Must stay first: loads .env before any module reads process.env.
+// Existing variables (e.g. Railway's) are never overridden.
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { errorHandler } from './middleware/error.middleware';
