@@ -5,7 +5,7 @@
 // minutes in Redis under normalized keys and guarded by the shared daily quota.
 
 import { createHash } from 'crypto';
-import { EbayService } from './ebay.service';
+import { EbayService, QuotaUsage } from './ebay.service';
 import { CacheService } from './cache.service';
 import { conditionIdsFor } from '../utils/conditions';
 import { median, min, max, mean, quartiles } from '../utils/insights/statistics';
@@ -37,6 +37,11 @@ export class ResearchService {
     private ebayService: EbayService,
     private cacheService: CacheService
   ) {}
+
+  /** The shared Browse quota: used today, held for monitors, left for research. No eBay call. */
+  quota(): Promise<QuotaUsage> {
+    return this.ebayService.getQuotaUsage();
+  }
 
   async search(req: ResearchSearchRequest): Promise<ResearchSearchResult> {
     const cacheKey = `research:search:${hashKey(req)}`;

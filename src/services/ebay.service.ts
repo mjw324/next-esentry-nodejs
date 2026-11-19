@@ -9,6 +9,7 @@ import { NotFoundError, RateLimitError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { canonicalSearch } from '../utils/search-key';
 import { conditionIdsFor } from '../utils/conditions';
+import { prisma } from '../lib/prisma';
 
 // Default fieldgroups for an insights snapshot call. MATCHING_ITEMS keeps the
 // itemSummaries in the response while the *_REFINEMENTS groups add the
@@ -55,9 +56,53 @@ const EBAY_REQUEST_TIMEOUT_MS = 10_000;
  */
 const SEARCH_CACHE_TTL_SECONDS = 60;
 
+/** How long the active monitors' intervals are reused for the quota reserve. */
+const MONITOR_INTERVALS_TTL_MS = 5 * 60 * 1000;
+
+/** Floor for a monitor interval in the reserve math, so a bad 0 can't divide. */
+const MIN_MONITOR_INTERVAL_MS = 60 * 1000;
+
+export interface QuotaUsage {
+  /** Browse calls counted since the counter last reset. */
+  used: number;
+  /** Where esentry stops itself, below eBay's 5,000/day. */
+  softCap: number;
+  /** softCap - used, for every caller. */
+  remaining: number;
+  /** Calls the active monitors will still make before the reset. */
+  monitorReserve: number;
+  /** What on-demand calls (research, insights, sold tracker) may still spend. */
+  available: number;
+  /** When the counter resets (ISO 8601). */
+  resetsAt: string;
+}
+
+/** Milliseconds until the server's next local midnight. */
+function msUntilMidnight(): number {
+  const now = new Date();
+  const midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0);
+  return midnight.getTime() - now.getTime();
+}
+
+/**
+ * Browse calls the active monitors will still make in the next `msUntilReset`:
+ * one per monitor per interval, rounded up. Identical searches actually share a
+ * call (searchItems caches and coalesces them), so this overestimates, which is
+ * the safe direction for a reserve.
+ */
+export function monitorReserve(intervalsMs: number[], msUntilReset: number): number {
+  if (msUntilReset <= 0) return 0;
+  return intervalsMs.reduce(
+    (sum, interval) => sum + Math.ceil(msUntilReset / Math.max(interval, MIN_MONITOR_INTERVAL_MS)),
+    0
+  );
+}
+
 export class EbayService {
   // Shared application-level Browse quota counter (eBay default ~5,000/day, app
-  // level — NOT per user). Soft cap leaves headroom below the real ceiling.
+  // level — NOT per user). Soft cap leaves headroom below the real ceiling, and
+  // on-demand calls also leave the active monitors' reserve (getQuotaUsage).
   private readonly QUOTA_KEY = 'ebay:api:calls:daily';
   private readonly QUOTA_SOFT_CAP = 4800;
   // Default page size for insights sampling (eBay Browse max is 200). Larger
@@ -287,32 +332,75 @@ export class EbayService {
     }
   }
 
-  /**
-   * Current app-level Browse quota usage for the day. Backed by a Redis counter
-   * incremented on every Browse call (monitoring + insights share it, since the
-   * eBay limit is per application, not per user).
-   */
-  async getQuotaUsage(): Promise<{ used: number; softCap: number; remaining: number }> {
-    let used = 0;
-    try {
-      const raw = await this.redis.get(this.QUOTA_KEY);
-      used = raw ? parseInt(raw, 10) : 0;
-    } catch (error) {
-      logger.error('ebay.quota.read_failed', { error });
+  /** Intervals (ms) of the active monitors, cached for MONITOR_INTERVALS_TTL_MS. */
+  private monitorIntervals: { values: number[]; expiresAt: number } | null = null;
+
+  private async activeMonitorIntervals(): Promise<number[]> {
+    if (this.monitorIntervals && this.monitorIntervals.expiresAt > Date.now()) {
+      return this.monitorIntervals.values;
     }
-    return { used, softCap: this.QUOTA_SOFT_CAP, remaining: Math.max(0, this.QUOTA_SOFT_CAP - used) };
+    try {
+      const rows = await prisma.monitor.findMany({
+        where: { status: 'active' },
+        select: { interval: true },
+      });
+      const values = rows.map((r) => r.interval);
+      this.monitorIntervals = { values, expiresAt: Date.now() + MONITOR_INTERVALS_TTL_MS };
+      return values;
+    } catch (error) {
+      // Keep the last known reserve rather than dropping it to zero.
+      logger.error('ebay.quota.monitors_read_failed', { error });
+      return this.monitorIntervals?.values ?? [];
+    }
   }
 
   /**
-   * Throw a RateLimitError if issuing `neededCalls` more Browse calls would
-   * exceed the soft cap. Called before insights requests so we back off near
-   * the ceiling instead of burning the monitoring flow's quota.
+   * Current app-level Browse quota usage for the day. Backed by a Redis counter
+   * incremented on every Browse call (monitoring, insights and research share
+   * it, since the eBay limit is per application, not per user).
+   *
+   * `available` is what on-demand calls may still spend: the soft cap less what
+   * has been used and what the active monitors will need before the counter
+   * resets. `resetsAt` is when this counter resets (the server's midnight);
+   * eBay's own window may not line up with it exactly.
+   */
+  async getQuotaUsage(): Promise<QuotaUsage> {
+    let used = 0;
+    let msUntilReset = msUntilMidnight();
+    try {
+      const [raw, ttl] = await Promise.all([
+        this.redis.get(this.QUOTA_KEY),
+        this.redis.pttl(this.QUOTA_KEY),
+      ]);
+      used = raw ? parseInt(raw, 10) : 0;
+      if (ttl > 0) msUntilReset = ttl;
+    } catch (error) {
+      logger.error('ebay.quota.read_failed', { error });
+    }
+    const softCap = this.QUOTA_SOFT_CAP;
+    const reserve = monitorReserve(await this.activeMonitorIntervals(), msUntilReset);
+    return {
+      used,
+      softCap,
+      remaining: Math.max(0, softCap - used),
+      monitorReserve: reserve,
+      available: Math.max(0, softCap - used - reserve),
+      resetsAt: new Date(Date.now() + msUntilReset).toISOString(),
+    };
+  }
+
+  /**
+   * Throw a RateLimitError if `neededCalls` more on-demand Browse calls
+   * (research, insights, the sold tracker) would eat into what the active
+   * monitors still need before the counter resets. Monitors never call this:
+   * they are what the reserve protects.
    */
   async assertQuota(neededCalls: number): Promise<void> {
-    const { used, softCap } = await this.getQuotaUsage();
-    if (used + neededCalls > softCap) {
+    const { used, softCap, monitorReserve, available } = await this.getQuotaUsage();
+    if (neededCalls > available) {
       throw new RateLimitError(
-        `eBay API daily quota nearly exhausted (${used}/${softCap}). Try again later.`
+        `eBay API daily quota nearly exhausted (${used}/${softCap} used, ` +
+          `${monitorReserve} held for monitors until reset). Try again later.`
       );
     }
   }
@@ -337,11 +425,7 @@ export class EbayService {
       const count = await this.redis.incr(this.QUOTA_KEY);
       // First increment of the day: expire the counter at the next midnight.
       if (count === 1) {
-        const now = new Date();
-        const midnight = new Date(now);
-        midnight.setHours(24, 0, 0, 0);
-        const secondsUntilMidnight = Math.floor((midnight.getTime() - now.getTime()) / 1000);
-        await this.redis.expire(this.QUOTA_KEY, secondsUntilMidnight);
+        await this.redis.expire(this.QUOTA_KEY, Math.floor(msUntilMidnight() / 1000));
       }
     } catch (error) {
       logger.error('ebay.quota.track_failed', { error });

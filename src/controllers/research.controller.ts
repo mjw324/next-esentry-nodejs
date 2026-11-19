@@ -29,6 +29,14 @@ export class ResearchController {
     }
   }
 
+  async quota(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      res.status(200).json(await this.researchService.quota());
+    } catch (error) {
+      next(error);
+    }
+  }
+
   private handleError(error: unknown, res: Response, next: NextFunction): void {
     if (error instanceof RateLimitError) {
       res.status(429).json({ error: 'Rate limit exceeded', message: error.message });

@@ -79,7 +79,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
           res.status(401).json({ error: 'Unauthorized - Invalid access token' });
           return;
         }
-        req.user = { id: userId };
+        req.user = { id: userId, personalToken: true };
         next();
         return;
       }

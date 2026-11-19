@@ -7,9 +7,10 @@ something new is listed"; this answers "what does this cost on eBay right now, i
 the condition I'd buy, shipped to me?".
 
 Both endpoints are mounted under `/api/research`, require authentication, and are
-per-user rate limited like `/api/insights`. Each uncached request costs **one**
-Browse call against the shared daily quota (it refuses with 429 near the soft cap)
-and is cached in Redis for 10 minutes.
+per-user rate limited like `/api/insights` (personal access tokens skip that hourly
+cap; see [Quota](#quota)). Each uncached request costs **one** Browse call against
+the shared daily quota (it refuses with 429 when the quota runs short) and is cached
+in Redis for 10 minutes.
 
 ## Authentication
 
@@ -87,6 +88,42 @@ sold quantity on multi-quantity listings), item specifics, a plain-text
 description (≤ 4,000 chars), and brand/MPN/GTIN/ePID. An ended or missing listing
 returns 404.
 
+## Quota
+
+Two limits apply, and only one of them is eBay's:
+
+- **Per-user hourly cap** (`User.maxApiCallsPerHour`, default 50): every
+  authenticated request counts, cache hits and monitor listings included.
+  Requests made with a **personal access token skip it**. Those are the owner's
+  own scripts, and at 50/hour the shopping workspace locked itself out on calls
+  that cost eBay nothing.
+- **eBay's daily Browse quota** (5,000 calls per app; `getItems` has a separate
+  5,000). esentry counts every Browse call in Redis and stops itself at a soft
+  cap of 4,800. On-demand calls (research, insights, the sold tracker) also leave
+  a **monitor reserve**: one call per active monitor per interval until the
+  counter resets, so research can't use up what the alert monitors need. The
+  reserve overestimates slightly (identical monitor searches share a call), and
+  it shrinks as the day goes on. Monitors themselves never check the quota.
+
+### `GET /api/research/quota`
+
+Costs no eBay call.
+
+```jsonc
+{
+  "used": 1234,            // Browse calls counted since the last reset
+  "softCap": 4800,
+  "remaining": 3566,       // softCap - used
+  "monitorReserve": 210,   // what the active monitors will still need before the reset
+  "available": 3356,       // left for research, insights and the sold tracker
+  "resetsAt": "2026-11-20T00:00:00.000Z"  // the server's midnight
+}
+```
+
+The counter resets at the server's midnight, which may not match eBay's own window.
+eBay's quota can be raised for free through its Application Growth Check, once the
+app needs more.
+
 ## Condition filter fix (applies to monitors too)
 
 `buildFilterString` used to send condition *names* as `conditionIds:{NEW}`.
@@ -121,8 +158,8 @@ So a **track** is a saved query whose auction results are recorded over time:
   reports it sold, records the sale: final bid, shipping, total, the last bid
   count seen before the end, end time, condition and seller.
 - One search per track per hour plus one `getItem` per ended auction (capped at
-  150 per run), all against the shared quota and stopped by the soft cap like
-  every other path. A busy track (say 40 auctions a day) costs about 64 calls a day.
+  150 per run), all against the shared quota and stopped short of the monitor
+  reserve like every other on-demand path. A busy track (say 40 auctions a day) costs about 64 calls a day.
 
 | Method & path | Does |
 |---|---|

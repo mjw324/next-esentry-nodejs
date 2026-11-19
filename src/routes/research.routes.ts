@@ -16,8 +16,11 @@ export function createResearchRouter(c: AppContainer): Router {
   const researchController = new ResearchController(c.researchService);
   const soldTrackerController = new SoldTrackerController(c.soldTrackerService);
 
-  // Same protection as insights: authenticated + per-user rate limited.
+  // Same protection as insights: authenticated + per-user rate limited
+  // (personal access tokens skip the hourly cap; see ratelimit.middleware).
   router.use(authMiddleware, c.rateLimitMiddleware);
+
+  router.get('/quota', researchController.quota.bind(researchController));
 
   router.post(
     '/search',

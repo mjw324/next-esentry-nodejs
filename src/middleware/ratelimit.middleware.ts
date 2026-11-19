@@ -13,6 +13,15 @@ export function createRateLimitMiddleware(rateLimitService: RateLimitService) {
         return next();
       }
 
+      // Personal access tokens are the owner's own scripts (the shopping
+      // workspace). The hourly cap counted every request they made, cache hits
+      // and monitor listings included, and locked them out at 50/hour. What
+      // actually needs protecting is eBay's daily quota, and EbayService guards
+      // every on-demand Browse call against that (assertQuota).
+      if (req.user.personalToken) {
+        return next();
+      }
+
       const userId = req.user.id;
       const isAllowed = await rateLimitService.checkApiRateLimit(userId);
 
